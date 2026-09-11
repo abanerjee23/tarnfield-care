@@ -54,8 +54,16 @@ RAG_CORPUS_DISPLAY_NAME = os.getenv(
 
 # One corpus, scoped per specialist in the tool layer (BUILD_PLAN 2.4). A second
 # corpus would mean a second standing Spanner bill.
-RETURNS_POLICY_DOC = os.getenv("RETURNS_POLICY_DOC", "returns_policy.pdf")
-BILLING_POLICY_DOC = os.getenv("BILLING_POLICY_DOC", "billing_policy.pdf")
+# The returns specialist owns two documents: the policy sets the general rules,
+# the catalogue carries per-product overrides ("final sale", "unopened packs
+# only") that beat the general rule. Multi-document reasoning is the point.
+RETURNS_POLICY_DOCS = [
+    os.getenv("RETURNS_POLICY_DOC", "tarnfield_returns_policy.pdf"),
+    os.getenv("PRODUCT_CATALOGUE_DOC", "tarnfield_product_catalogue.pdf"),
+]
+BILLING_POLICY_DOCS = [
+    os.getenv("BILLING_POLICY_DOC", "tarnfield_billing_policy.pdf"),
+]
 
 
 # --- Sessions (BUILD_PLAN 2.7) ------------------------------------------------

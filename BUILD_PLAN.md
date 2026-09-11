@@ -687,8 +687,9 @@ should contain at least two actual dollar amounts.
       *Both* steps, or model calls silently keep billing GCP.
 
 ### 6.2 Write the policy documents — on the critical path
-- [ ] Author `returns_policy.pdf` and `billing_policy.pdf`. These do not exist yet, and the
-      earlier plan assumed they did.
+- [x] `tarnfield_returns_policy.pdf` and `tarnfield_product_catalogue.pdf` supplied.
+- [x] `tarnfield_billing_policy.pdf` drafted. Text lives in `scripts/make_billing_policy.py`
+      so wording changes are diffable; re-run it to regenerate.
 - [ ] Deliberately leave some plausible questions **unanswered** by both documents. Without
       that, §4's refusal cases have nothing real to test against.
 - [ ] Include at least one genuine cross-domain seam (a refund clause that touches both) so
