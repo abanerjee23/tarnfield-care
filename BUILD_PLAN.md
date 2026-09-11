@@ -600,6 +600,11 @@ are cheap. The reverse mistake — building a pipeline for an agent you then red
 by a log sink and queried with SQL. One row per outcome, keyed by order id so it joins back to
 the fixture.
 
+**Scope: this one table and nothing else.** No conversation transcripts are exported. Full
+conversations stay in the session service (2.7), where they are already preserved and already
+inspectable. They get pulled into BigQuery only if a specific analysis needs them, as a
+deliberate act with a retention decision attached — not as a standing pipeline nobody owns.
+
 ```json
 {
   "event": "case_outcome",
@@ -645,9 +650,11 @@ the live conversation, and a summary of them lands in BigQuery for analysis afte
   contact details — an order id, a determination, a clause reference. That keeps the analytics
   store out of scope for 2.8's deletion problem.
 - **Note what is already flowing, though.** The scaffold's existing completions sink exports
-  prompt and response content to BigQuery. That is genuinely useful for debugging, and it is
-  also a second copy of anything a customer typed. Fine for fake customers. **Before real ones,
-  that sink needs a retention policy and a redaction decision** — it will not announce itself.
+  prompt and response content to BigQuery. We are not building on it and not extending it, but
+  we are not switching it off either — it is genuinely useful while debugging a three-agent
+  system. It is also a second copy of anything a customer typed, outside the one table we chose
+  to build. Fine for fake customers. **Before real ones it needs a retention policy and a
+  redaction decision** — it will not announce itself. Open question #9.
 
 ---
 
@@ -838,6 +845,7 @@ should contain at least two actual dollar amounts.
 | 6 | Are order/invoice lookups mocked forever, or real? | Your call — changes scope significantly |
 | 7 | Who updates the corpus when policy changes? | Unowned drift is risk #2 in §1 |
 | 8 | Does memory ever override policy in practice? | The eval case in 2.8 — watch it closely |
+| 9 | Retention and redaction for the scaffold's completions sink | Before any real customer data. Decide, don't inherit (2.15) |
 
 ---
 
@@ -856,5 +864,7 @@ should contain at least two actual dollar amounts.
 - **No self-managed vector database** — absurd for a handful of PDFs (2.5)
 - **No CI/CD yet** — premature while the design is moving (2.14)
 - **No real order-system integration yet** — mocks are enough to evaluate behaviour (2.12)
+- **No transcript export to BigQuery** — one deliberate outcome table beats a standing pipeline
+  copying customer text nobody owns (2.15)
 - **No pytest on model output** — LLM output is non-deterministic; behaviour belongs in evals.
   The scaffold's integration tests cover wiring, tool schemas, and error paths — not judgement.
