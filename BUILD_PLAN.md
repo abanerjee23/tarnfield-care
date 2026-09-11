@@ -300,23 +300,52 @@ response back to the root. You do not need to build agent-to-agent logging. It's
 
 ---
 
-### 2.8 Memory Bank as well as sessions — they are different things
+### 2.8 What the agent remembers, and which layer is allowed to decide
 
-**Decision.** Both services are wired. They are independent: `Runner` takes a required
-`session_service` and an optional `memory_service` (`google/adk/runners.py:210`).
+**Decision.** Four storage layers, in a strict authority order. The whole point of writing
+this down is the last rule: **memory can change how we speak to a customer and what we offer
+them next. Only the corpus can change the answer.**
 
-| | Holds | Answers |
-|---|---|---|
-| **Session service** (2.7) | The literal event log of one conversation | "What did we just say?" |
-| **Memory Bank** | LLM-distilled facts drawn from past sessions | "What do we know about this customer?" |
+| Layer | Scope | Shape | May it decide a ruling? |
+|---|---|---|---|
+| `temp:` state | One turn | Scratch, never persisted | No |
+| Session state | One conversation | Exact key/value | No |
+| `user:` state | One customer, **across all conversations** | Exact key/value | No |
+| Memory Bank | One customer, across conversations | LLM-distilled, semantic search | **Never** |
+| **Policy corpus (2.5)** | The company's documents | Retrieved text, cited | **Yes — only this** |
 
-Memory Bank is *not* a conversation archive — it reads sessions and writes summaries like
-*"prefers email contact, returned a jacket in March."* The full record you asked for comes
-from the session service, which already captures agent-to-agent traffic because specialists
-run inline in the root's session (2.2). Memory Bank is the separate thing on top:
-personalisation across conversations.
+`user:` state is the layer most people miss. It gives persistent cross-conversation memory
+with no Memory Bank involved, works locally today with no `AGENT_ENGINE_ID`, and is exact
+rather than distilled. It is the system of record for anything we can name in advance.
 
-Same two-tier shape as sessions:
+Memory Bank sits alongside it for the thing `user:` state cannot do: context nobody could have
+declared a key for. *"I mentioned last time I need a wide fit."*
+
+**Neither is the authoritative customer record.** In production that is the CRM and the order
+database. Agent memory is a convenience layer over systems of record — the moment a fact lives
+only here, we have a data-integrity problem wearing an AI costume.
+
+**Worked example — why the order matters.** Priya bought the Solstice Edition (TF-FW-106),
+which the catalogue marks *"Final sale. Not returnable or exchangeable unless faulty."* She
+returns in a new conversation saying the shoes are "not right." Memory holds *"a previous
+return was refunded as a goodwill exception."*
+
+If memory were allowed to decide, the bot reasons *"we made an exception before, so yes"* and
+refunds a final-sale item on the strength of a summary of something that happened once. Under
+the hierarchy, the corpus produces the "no", while `user:preferred_contact` picks the channel
+and Memory Bank supplies the wide-fit context and the *"good to hear from you again."* Three
+layers shape the reply; one layer decides it.
+
+**How it is enforced, not just intended:**
+
+- Retrieved memory enters the prompt in a block explicitly labelled as customer context, never
+  as policy, and never in the same block as retrieved policy text.
+- Every specialist's instructions state that a ruling cites a policy clause. A determination
+  with no clause behind it is a refusal, not an answer.
+- An eval case, listed in §4: a misleading stored memory that must not override the policy.
+
+**Wiring.** `Runner` takes both services independently — `session_service` required,
+`memory_service` optional (`google/adk/runners.py:210`). Same two-tier shape as 2.7:
 
 | Environment | Service |
 |---|---|
@@ -325,8 +354,8 @@ Same two-tier shape as sessions:
 
 Read back into a turn with the `load_memory` tool.
 
-**Why.** A returning customer who re-explains their situation every time is a visibly worse
-experience, and for a service bot that gap is obvious to anyone demoing it.
+**Why have Memory Bank at all.** A returning customer who re-explains themselves every time is
+a visibly worse experience, and for a service bot that gap is obvious to anyone demoing it.
 
 **What it costs us.**
 
@@ -341,12 +370,14 @@ experience, and for a service bot that gap is obvious to anyone demoing it.
 - **It is a customer-data store**, which collides with 2.9 — model calls run through AI Studio,
   which has no data residency commitment. Fine for fake policy documents and fake customers.
   **The moment real customer data is involved, this decision and 2.9 have to move together.**
-- **Memory can be wrong, and wrong memory is worse than none.** A distilled fact like "customer
-  always gets free returns" that was true once becomes a confident error later. Retrieved
-  memory is *context*, never a policy source: a ruling must still come from the corpus.
-  **This needs its own eval case** — a misleading stored memory that must not override the
-  policy.
+- **Deletion is a legal request, not a feature request.** `user:` state keys can be deleted
+  with confidence. Distilled summaries spread through a vector store are much harder to prove
+  fully removed. Another reason the structured layer carries the load.
+- **Wrong memory outlives its truth.** *"This customer always gets free returns"* — accurate
+  once, as a goodwill exception — becomes a confident error a year later. The hierarchy is what
+  keeps that error cosmetic instead of financial.
 
+---
 
 ### 2.9 Split billing — models on AI Studio, infrastructure on GCP
 

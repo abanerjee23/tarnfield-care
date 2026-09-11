@@ -70,3 +70,11 @@ AGENT_ENGINE_ID = os.getenv("AGENT_ENGINE_ID", "")
 # the code path but loses everything on restart, so memory-dependent evals are
 # not trustworthy locally.
 MEMORY_BACKEND = os.getenv("MEMORY_BACKEND", "in_memory")
+
+# Authority order (BUILD_PLAN 2.8): temp: < session state < user: state <
+# Memory Bank < policy corpus. Only the corpus may decide a ruling. Memory
+# changes how we speak to a customer and what we offer next, never the answer.
+#
+# user: state is the system of record for anything we can name in advance -- it
+# is exact, deletable, and works locally with no AGENT_ENGINE_ID. Memory Bank
+# covers only what no key could have been declared for in advance.
