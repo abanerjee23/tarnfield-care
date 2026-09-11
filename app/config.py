@@ -8,6 +8,33 @@ it costs us.
 from __future__ import annotations
 
 import os
+import sys
+from pathlib import Path
+
+
+def _ignore_stale_adc() -> None:
+    """Drop GOOGLE_APPLICATION_CREDENTIALS when it points at a file that is gone.
+
+    A stale pointer makes ADC raise DefaultCredentialsError instead of falling
+    back to gcloud credentials, and the traceback names the missing file rather
+    than the real problem. It breaks the agent, the tests and the playground
+    alike, so the guard lives here -- everything imports config.
+
+    Only ever removes a pointer to a file that does not exist. A valid one is
+    left alone.
+    """
+    stale = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+    if stale and not Path(stale).exists():
+        print(
+            f"warning: GOOGLE_APPLICATION_CREDENTIALS points at a missing file\n"
+            f"         ({stale})\n"
+            f"         Ignoring it and falling back to gcloud ADC.",
+            file=sys.stderr,
+        )
+        del os.environ["GOOGLE_APPLICATION_CREDENTIALS"]
+
+
+_ignore_stale_adc()
 
 # --- Models (BUILD_PLAN 2.10) -------------------------------------------------
 # Split by job, not by agent seniority. The expensive model does the expensive

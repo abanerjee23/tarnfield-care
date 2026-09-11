@@ -45,7 +45,7 @@ customer-chatbot-rag/
 │   ├── tarnfield_returns_policy.pdf
 │   ├── tarnfield_product_catalogue.pdf     # per-product return overrides
 │   └── tarnfield_billing_policy.pdf
-├── data/fixtures.json         # Dummy orders, returns and billing cases
+├── data/fixtures.json         # Dummy orders + cases (built in BUILD_PLAN 6.4)
 ├── scripts/
 │   ├── rag_corpus.py          # Corpus lifecycle (up/status/down/unprovision)
 │   └── make_billing_policy.py # Source text for the billing policy PDF

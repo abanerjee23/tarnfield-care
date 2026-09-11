@@ -19,7 +19,6 @@ SDK calls live in this one file, so migrating is a contained change.
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 import warnings
 from pathlib import Path
@@ -44,18 +43,7 @@ def _init() -> None:
     if not config.PROJECT_ID:
         sys.exit("GOOGLE_CLOUD_PROJECT is not set. See .env.")
 
-    # A stale GOOGLE_APPLICATION_CREDENTIALS pointing at a deleted key file makes
-    # ADC fail with a confusing traceback rather than falling back to gcloud
-    # credentials. Ignore it when the file is gone (BUILD_PLAN 6.1).
-    stale = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
-    if stale and not Path(stale).exists():
-        print(
-            f"warning: GOOGLE_APPLICATION_CREDENTIALS points at a missing file\n"
-            f"         ({stale})\n"
-            f"         Ignoring it and falling back to gcloud ADC.",
-            file=sys.stderr,
-        )
-        del os.environ["GOOGLE_APPLICATION_CREDENTIALS"]
+    # Stale ADC credentials are handled at import time by app.config.
     # RAG Engine needs a real region. GOOGLE_CLOUD_LOCATION is deliberately not
     # used here -- "global" is a model-serving value, not a corpus region.
     vertexai.init(project=config.PROJECT_ID, location=config.RAG_CORPUS_LOCATION)

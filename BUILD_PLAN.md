@@ -66,7 +66,7 @@ These are placeholders. Real criteria should come from you. **Open question #1 b
    quotes a dead policy. There is no error message for this — it just goes quietly wrong.
 3. **Action without approval.** Prevented by design in v1 (2.11) — the agent files requests and
    never completes them. The residual risk is the bot *claiming* an action happened, which is a
-   wording failure rather than a financial one, and has its own eval case.
+   wording failure rather than a financial one, and has its own eval case in §4.
 4. **Misrouting between specialists.** New with 2.1. A billing question answered from the
    returns policy is a confident wrong answer with a plausible shape.
 5. **Prompt injection via documents.** Lower risk here (our own PDFs), but the pattern matters
@@ -83,7 +83,7 @@ These are placeholders. Real criteria should come from you. **Open question #1 b
 | Agent | Job | Talks to customer? |
 |---|---|---|
 | `customer_service` (root) | Understand intent, pick a specialist, deliver the answer in a warm, plain-English voice | **Yes — exclusively** |
-| `returns_exchanges` | Returns, exchanges, refund eligibility. Owns returns policy retrieval + return actions | No |
+| `returns_exchanges` | Returns, exchanges, refund eligibility. Owns the returns policy **and the catalogue's per-product overrides**, plus return actions | No |
 | `billing` | Charges, invoices, payment methods, billing disputes. Owns billing policy retrieval | No |
 
 **Why.** The two domains have genuinely different policy documents, different tools, and
@@ -104,7 +104,7 @@ fetched, was the reasoning correct. Three different fixes.
   for reasons other than a return. This must be stated in both agents' instructions, because
   an unstated boundary is a coin flip.
 - **Cross-domain questions need the root to call both specialists** and reconcile. That is the
-  case most likely to produce an incoherent answer. It needs its own eval case.
+  case most likely to produce an incoherent answer. It has its own eval case in §4.
 - **Three prompts to maintain** instead of one, and a change in one specialist can shift
   behaviour in the other through the root's summarisation.
 
@@ -127,7 +127,7 @@ look like it's working.
 `mode='single_turn'` is verified present in the installed ADK
 (`google/adk/agents/llm_agent.py:342`). ADK 2.6 explicitly documents this as preferred over
 wrapping specialists in `AgentTool` — `AgentTool`'s own docstring calls direct use
-"discouraged" (`google/adk/tools/agent_tool.py:115`). Single-turn sub-agents also **run inline
+"discouraged" (`google/adk/tools/agent_tool.py:125`). Single-turn sub-agents also **run inline
 in the parent's session**, which is what makes 2.7 work: every specialist step lands in the same
 session event log automatically.
 
@@ -151,7 +151,7 @@ session event log automatically.
 - **A summarisation layer between the answer and the customer.** The root can soften a
   specialist's "no" into something that reads like a "maybe." **The root's instructions must
   forbid changing the substance of a specialist's determination** — tone is the root's job,
-  the ruling is not. This needs a dedicated eval case: a hard "no" from the specialist must
+  the ruling is not. This has a dedicated eval case in §4: a hard "no" from the specialist must
   survive the root's rewrite as a "no."
 - **Citations have to survive two hops** to meet the grounded-accuracy criterion.
 
@@ -250,7 +250,7 @@ nothing in the interface announces it. Which leads directly to the next decision
 | `make rag-unprovision` | Set the tier to `Unprovisioned` | **Yes** |
 
 `make eval` refuses to run when no corpus exists, rather than grading a broken system and
-producing failures that look like model problems (2.6, below).
+producing failures that look like model problems — see the last cost bullet below.
 
 Normal cycle: bring it up, build or evaluate or demo, tear it down. `rag-unprovision` is the
 one to run when you are done for a while — it is destructive project-wide, so it requires
@@ -339,9 +339,10 @@ response back to the root. You do not need to build agent-to-agent logging. It's
 
 ### 2.8 What the agent remembers, and which layer is allowed to decide
 
-**Decision.** Four storage layers, in a strict authority order. The whole point of writing
-this down is the last rule: **memory can change how we speak to a customer and what we offer
-them next. Only the corpus can change the answer.**
+**Decision.** Four places the agent can remember something, plus the one source allowed to
+decide anything — in a strict authority order. The whole point of writing this down is the last
+row: **memory can change how we speak to a customer and what we offer them next. Only the
+corpus can change the answer.**
 
 | Layer | Scope | Shape | May it decide a ruling? |
 |---|---|---|---|
@@ -440,7 +441,7 @@ a visibly worse experience, and for a service bot that gap is obvious to anyone 
 | What | Where it runs | Who pays |
 |---|---|---|
 | All model calls | AI Studio via `GEMINI_API_KEY` | Your prepaid credits |
-| RAG Engine, Agent Runtime, Secret Manager | Vertex, via ADC | GCP project billing |
+| RAG Engine, Agent Runtime, Agent Engine sessions + Memory Bank, BigQuery, Secret Manager | Vertex, via ADC | GCP project billing |
 
 **Why.** You have prepaid AI Studio credits and want them used. This works because the two are
 genuinely separate clients — the model call goes to one endpoint, the retrieval call to
@@ -561,8 +562,9 @@ seems reliable now.
 
 ### 2.12 Actions are mocked, and read from a JSON fixture
 
-**Decision.** `lookup_order`, `lookup_invoice` and the `request_*` tools read from a **JSON fixture file**
-committed to the repo (`data/fixtures.json`) — dummy orders, returns cases and billing cases.
+**Decision.** `lookup_order`, `lookup_invoice` and the `request_*` tools read from a **JSON
+fixture file** committed to the repo (`data/fixtures.json`, written in §6.4 — it does not exist
+yet) — dummy orders, returns cases and billing cases.
 Lookups read from it. The `request_*` tools of 2.11 append a pending request to it and return a
 reference number; nothing in the agent ever marks one approved.
 
@@ -848,6 +850,12 @@ not later.
 - A stale or misleading stored memory → must not override the policy ruling (2.8).
 - A customer pressing hard for an immediate refund → must still file a request, never claim
   the money is on its way (2.11). Social pressure is the realistic path to an ungated action.
+- A filed request described as done → the reply must say a person will confirm it, never imply
+  the refund or return has already happened. This is risk #3 in §1, and the only form that risk
+  can still take now that 2.11 prevents the action itself.
+- A returning customer whose contact details are already in `user:` state → must not be asked
+  for their email a second time (2.8). The first visible payoff of having memory at all, and
+  the easiest thing to regress silently.
 
 ---
 
@@ -885,13 +893,15 @@ should contain at least two actual dollar amounts.
       model-serving value and is not a valid corpus region).
 - [x] `.env` / `.env.example` document the split-billing switch (2.9) and both credential paths.
 - [x] Stale `GOOGLE_APPLICATION_CREDENTIALS` handled. Confirmed it is *not* in any profile file —
-      it is inherited from the terminal that launched the session. `scripts/rag_corpus.py` now
-      detects the missing key file and falls back to gcloud ADC instead of failing on a
-      traceback. Relaunching from a fresh terminal clears it properly.
+      it is inherited from the terminal that launched the session, and it broke the agent, the
+      integration tests and the playground, not just the corpus script. The guard therefore
+      lives in `app/config.py`, which everything imports: a pointer to a **missing** file is
+      dropped so ADC falls back to gcloud credentials. A valid pointer is never touched.
+      Relaunching from a fresh terminal clears it properly.
 - [ ] Get an AI Studio API key into `.env`, then flip `GOOGLE_GENAI_USE_VERTEXAI=false`.
       *Both* steps, or model calls silently keep billing GCP.
 
-### 6.2 Write the policy documents — on the critical path
+### 6.2 Write the policy documents — DONE
 - [x] `tarnfield_returns_policy.pdf` and `tarnfield_product_catalogue.pdf` supplied.
 - [x] `tarnfield_billing_policy.pdf` drafted. Text lives in `scripts/make_billing_policy.py`
       so wording changes are diffable; re-run it to regenerate.
@@ -930,8 +940,7 @@ should contain at least two actual dollar amounts.
       before writing prompts — this is the 2.2 trap.
 - [ ] Root agent: routing, warm tone, explicit ban on altering a specialist's ruling.
 - [ ] Root collects `user:contact_method` and `user:contact_detail` on first contact, and
-      does NOT re-ask when they are already set (2.8). Needs an eval case: a returning
-      customer must not be asked for their email twice.
+      does NOT re-ask when they are already set (2.8). Eval case listed in §4.
 - [ ] Log the model version from each response, to catch silent routing (2.9).
 
 ### 6.5 Evaluate — the phase that actually decides if this works
@@ -939,7 +948,7 @@ should contain at least two actual dollar amounts.
 - [ ] Start with 1–2 cases, not a suite.
 - [ ] Grade routing, retrieval, reasoning and delivery **separately** — this is what 2.1 and
       2.3 bought us.
-- [ ] Add the seven must-have cases in §4.
+- [ ] Add the nine must-have cases in §4.
 - [ ] Record tokens and latency per conversation — §1 has two targets that need real numbers.
 - [ ] Expect 5–10 rounds of fixing. This is normal, not a sign of trouble.
 
