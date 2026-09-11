@@ -1,7 +1,8 @@
 # BUILD PLAN — Customer Service Chatbot (Returns, Exchanges & Billing)
 
-**Status:** Architecture agreed. Environment fixes applied. Agent not yet built.
-**Last updated:** 2026-09-11
+**Status:** Architecture agreed. Environment fixed, policy documents written, corpus tooling
+built. Agents not yet built.
+**Last updated:** 2026-09-12
 **Project:** `customer-chatbot-rag` · GCP project `gemini-enterprise-learning`
 
 ---
@@ -43,7 +44,7 @@ order statuses, we have made a design error.
 
 ### Success criteria — ASSUMPTION, please confirm or replace
 
-These are placeholders. Real criteria should come from you. **Open question #1 blocks §6.**
+These are placeholders. Real criteria should come from you. **Open question #1 blocks §6.5.**
 
 | Metric | Target | Why this one |
 |---|---|---|
@@ -63,7 +64,9 @@ These are placeholders. Real criteria should come from you. **Open question #1 b
    when the policy says otherwise is a real financial and trust loss.
 2. **Silent policy drift.** PDFs get updated; the index does not. The bot then confidently
    quotes a dead policy. There is no error message for this — it just goes quietly wrong.
-3. **Action without confirmation.** The bot starting a return the customer did not ask for.
+3. **Action without approval.** Prevented by design in v1 (2.11) — the agent files requests and
+   never completes them. The residual risk is the bot *claiming* an action happened, which is a
+   wording failure rather than a financial one, and has its own eval case.
 4. **Misrouting between specialists.** New with 2.1. A billing question answered from the
    returns policy is a confident wrong answer with a plausible shape.
 5. **Prompt injection via documents.** Lower risk here (our own PDFs), but the pattern matters
@@ -130,9 +133,9 @@ session event log automatically.
 
 **What it costs us.**
 
-- **Three Pro calls on a typical turn** — root decides, specialist reasons (plus retrieval),
-  root composes — and more when two specialists are involved. This is the dominant cost and
-  latency driver in the whole system. See 2.10.
+- **Three model calls on a typical turn** — root decides, specialist reasons (plus retrieval),
+  root composes — and more when two specialists are involved. Only the middle hop is Pro
+  (2.10), but it is the slow one, so this is the dominant latency driver in the system.
 - **A summarisation layer between the answer and the customer.** The root can soften a
   specialist's "no" into something that reads like a "maybe." **The root's instructions must
   forbid changing the substance of a specialist's determination** — tone is the root's job,
@@ -205,9 +208,15 @@ be absurd.
 **What it costs us — read this one carefully.**
 
 RAG Engine's managed vector store **provisions a Spanner database instance** behind the scenes.
-Basic tier is 100 processing units, and it **bills continuously from the moment the corpus
-exists** — whether you query it a thousand times a day or never. You cannot pause it. The only
-way to stop the meter is to delete the corpus.
+Basic tier is 100 processing units, and it **bills continuously** — whether you query it a
+thousand times a day or never.
+
+**The part that is genuinely counter-intuitive, confirmed by running `make rag-status` against
+this project:** the billing tier is a **project + location singleton** (`ragEngineConfig`), not
+a property of any corpus. Our project already reported `Tier: Basic` while holding **no corpus
+at all**. So deleting the corpus does *not* stop the meter — an earlier draft of this plan said
+it did, and was wrong. Halting it requires setting the tier to `Unprovisioned`, which wipes all
+RAG Engine data in that project and location.
 
 This is the single largest standing cost in the project, and it is easy to miss because
 nothing in the interface announces it. Which leads directly to the next decision.
@@ -219,12 +228,21 @@ nothing in the interface announces it. Which leads directly to the next decision
 
 ### 2.6 The corpus is ephemeral — created for work, deleted afterwards
 
-**Decision.** Two commands:
+**Decision.** Four commands, because 2.5 means corpus lifetime and billing are separate things:
 
-- `make rag-up` — create the corpus and ingest the PDFs
-- `make rag-down` — delete the corpus, stopping the Spanner charge
+| Command | What it does | Stops the bill? |
+|---|---|---|
+| `make rag-up` | Create the corpus, ingest `docs/*.pdf` | — |
+| `make rag-status` | Show corpus contents **and the billing tier** | — |
+| `make rag-down` | Delete the corpus | **No** — see 2.5 |
+| `make rag-unprovision` | Set the tier to `Unprovisioned` | **Yes** |
 
-Normal cycle: bring it up, build or evaluate or demo, tear it down.
+`make eval` refuses to run when no corpus exists, rather than grading a broken system and
+producing failures that look like model problems (2.6, below).
+
+Normal cycle: bring it up, build or evaluate or demo, tear it down. `rag-unprovision` is the
+one to run when you are done for a while — it is destructive project-wide, so it requires
+typing the region to confirm.
 
 **Why.** It converts an always-on cost into a pay-for-what-you-use one. With a few small PDFs,
 re-ingestion takes minutes and costs pennies in embedding generation. The economics strongly
@@ -249,9 +267,10 @@ favour deleting it.
 - **Evaluation requires the corpus to be up.** The loop is `rag-up` → eval → `rag-down`.
   Forgetting this produces eval failures that look like model problems but aren't.
 
-*Why put it in a Makefile rather than clicking in the console:* a two-command ritual you run
-every week is a ritual you will eventually do wrong from memory. Especially the `rag-down`
-half — the one that costs money when skipped.
+*Why put it in a Makefile rather than clicking in the console:* a ritual you run every week is
+a ritual you will eventually do wrong from memory. Especially the teardown half — the one that
+costs money when skipped. `rag-status` exists for exactly this reason: it prints the billing
+tier every time, so the standing cost is never invisible.
 
 ---
 
@@ -355,7 +374,7 @@ return was refunded as a goodwill exception."*
 
 If memory were allowed to decide, the bot reasons *"we made an exception before, so yes"* and
 refunds a final-sale item on the strength of a summary of something that happened once. Under
-the hierarchy, the corpus produces the "no", while `user:preferred_contact` picks the channel
+the hierarchy, the corpus produces the "no", while `user:contact_method` picks the channel
 and Memory Bank supplies the wide-fit context and the *"good to hear from you again."* Three
 layers shape the reply; one layer decides it.
 
@@ -388,7 +407,7 @@ a visibly worse experience, and for a service bot that gap is obvious to anyone 
   restart. **The local and deployed bots therefore behave differently**, and that difference
   will show up as "works on my machine" bugs in the memory-dependent cases. Evals that depend
   on memory are not trustworthy locally.
-- **An extra LLM call for consolidation**, on top of the multi-hop turn already costs
+- **An extra LLM call for consolidation**, on top of what a multi-hop turn already costs
   (2.2). Measure it with the rest in §6.5.
 - **It is a customer-data store**, which collides with 2.9 — model calls run through AI Studio,
   which has no data residency commitment. Fine for fake policy documents and fake customers.
@@ -426,17 +445,18 @@ this decision.
 **What it costs us.**
 
 - **Two bills and two quota systems** to reason about. Cost-per-conversation now requires
-  adding numbers from two consoles — and 2.2 means multiplying the model side by ~3.
+  adding numbers from two consoles — and 2.2 means roughly three model calls per turn, only one
+  of them Pro.
 - **An API key to manage.** Once deployed, it must live in Secret Manager, never in `.env`.
   A key in a file is a key in a screenshot eventually.
 - **AI Studio has weaker enterprise guarantees** than Vertex — no VPC Service Controls, no data
   residency commitments. Fine for a portfolio project with fake policy documents. **Not fine if
   real customer data ever flows through it.** If this ever goes near production, model calls
-  move to Vertex and this decision reverses. This is also why 2.8 is deferred.
+  move to Vertex and this decision reverses — together with 2.8, which stores customer data.
 - **One unconfirmed report** on Google's developer forum claims AI Studio has silently routed
   `gemini-3.1-pro-preview` traffic to a smaller model. Unverified, and forum posts are not
   evidence. But it costs nothing to log the model version returned in each response and check
-  we got what we asked for — see 6.3.
+  we got what we asked for — see 6.4.
 
 ---
 
@@ -660,44 +680,116 @@ the live conversation, and a summary of them lands in BigQuery for analysis afte
 
 ## 3. How it fits together
 
-```
-                        Customer
-                            |
-                            v
-              ┌─────────────────────────────┐
-              │   customer_service (root)   │   gemini-3.1-pro-preview
-              │   - reads intent            │
-              │   - picks a specialist      │   ONLY agent that speaks
-              │   - delivers the answer     │   to the customer
-              │     in a warm, plain voice  │
-              └─────────────────────────────┘
-                     |                  |
-          single_turn|                  |single_turn
-         (control returns)        (control returns)
-                     v                  v
-      ┌──────────────────────┐   ┌──────────────────────┐
-      │  returns_exchanges   │   │      billing         │
-      │  - returns policy    │   │  - billing policy    │
-      │  - refund eligibility│   │  - charges, invoices │
-      │  - return actions    │   │  - READ-ONLY (2.11)  │
-      └──────────────────────┘   └──────────────────────┘
-             |         |               |         |
-             v         v               v         v
-   search_returns   request_return  search_billing  request_billing
-     _policy()      request_exchange _policy()      _adjustment()
-             |      (human-gated)         |      (human-gated)
-             |                           |
-             └─────────┬─────────────────┘
-                       v
-          ┌────────────────────────────┐
-          │  ONE RAG Engine corpus     │   scoped per specialist
-          │  returns.pdf + billing.pdf │   in the tool layer (2.4)
-          └────────────────────────────┘
+### The system
 
-  Every step above — routing, tool calls, retrieved chunks, specialist
-  replies — lands in ONE session event log, because single_turn
-  sub-agents run inline in the parent's session (2.2 / 2.7).
+```mermaid
+flowchart LR
+    C(["Customer"])
+
+    subgraph AGENTS["Agents — Agent Runtime"]
+        direction TB
+        R["customer_service — ROOT<br/>gemini-3.8-flash<br/>routes · warm voice · never rules"]
+        RE["returns_exchanges<br/>gemini-3.1-pro-preview<br/>is this returnable?"]
+        BI["billing<br/>gemini-3.1-pro-preview<br/>where did the money go?"]
+    end
+
+    subgraph TOOLS["Tools — plain Python, visible in every trace"]
+        direction TB
+        SR["search_returns_policy<br/>scoped: returns + catalogue"]
+        SB["search_billing_policy<br/>scoped: billing"]
+        LK["lookup_order · lookup_invoice<br/>read-only, ungated"]
+        RQ["request_return · request_exchange<br/>request_billing_adjustment<br/>files it, never acts"]
+    end
+
+    subgraph DATA["Google Cloud"]
+        direction TB
+        RAG[("RAG Engine — ONE corpus<br/>3 PDFs · STANDING COST")]
+        SESS[("Sessions + user: state")]
+        MEM[("Memory Bank")]
+        BQ[("BigQuery · case_outcome")]
+    end
+
+    FIX["data/fixtures.json<br/>dummy orders + cases"]
+    AIS["AI Studio<br/>all model calls · prepaid credits"]
+    HUM(["Human reviewer"])
+
+    C <-->|"question ⇄ cited answer"| R
+    R <-->|"delegate ⇄ ruling"| RE
+    R <-->|"delegate ⇄ ruling"| BI
+
+    RE --> SR
+    RE --> LK
+    RE --> RQ
+    BI --> SB
+    BI --> LK
+    BI --> RQ
+
+    SR --> RAG
+    SB --> RAG
+    LK --> FIX
+    RQ --> FIX
+    RQ -->|"reference no."| HUM
+    HUM -->|"approve / override"| BQ
+
+    R -.-> SESS
+    R -.-> MEM
+    R -.->|"one row per case"| BQ
+    AGENTS -.->|"model calls"| AIS
+
+    classDef agent fill:#E8F0FE,stroke:#1A73E8,color:#0B3D91
+    classDef tool fill:#F1F3F4,stroke:#5F6368,color:#202124
+    classDef svc fill:#E6F4EA,stroke:#137333,color:#0D652D
+    classDef ext fill:#FEF7E0,stroke:#EA8600,color:#7A4100
+    classDef human fill:#FCE8E6,stroke:#C5221F,color:#8C1D18
+    class R,RE,BI agent
+    class SR,SB,LK,RQ tool
+    class RAG,SESS,MEM,BQ svc
+    class AIS,FIX ext
+    class C,HUM human
 ```
+
+**Reading the diagram.** It runs left to right: customer, agents, tools, storage. Solid arrows
+are the request path; dotted arrows are infrastructure the agents touch on every turn regardless
+of what was asked. Blue is an agent, grey a tool, green a Google Cloud service, amber something
+outside GCP, red a person.
+
+The root is the only box touching the customer. The only box that can *decide* anything is the
+RAG corpus — everything else supplies context (2.8).
+
+Note what the red boxes have in common: a customer at the top, a human at the bottom. In v1
+there is a person at both ends of every action.
+
+### One turn, end to end
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as Customer
+    participant R as Root · Flash
+    participant S as Specialist · Pro
+    participant K as RAG corpus
+    participant F as fixtures.json
+    participant B as BigQuery
+
+    C->>R: Can I return the Solstice trainers?
+    R->>R: load user: state + memory
+    R-->>C: Let me check that for you (streamed)
+    R->>S: delegate — control returns here
+    S->>K: search_returns_policy
+    K-->>S: catalogue TF-FW-106 + returns policy §1
+    S->>F: lookup_order TF-88213
+    F-->>S: order record
+    S-->>R: NOT ELIGIBLE — catalogue:TF-FW-106:final_sale
+    R-->>C: warm reply, ruling unchanged, clause cited
+    R->>B: case_outcome row
+```
+
+Step 3 is the latency mitigation from 2.10: the customer sees something immediately, while the
+slow Pro hop happens behind it. Step 10 is where the root is most dangerous — it may rewrite
+the sentence, never the ruling.
+
+Had the customer asked for an action, `request_*` would have filed it and returned a reference
+number. Nothing would have executed (2.11).
 
 **Two rules hold this together:**
 
@@ -707,6 +799,10 @@ the live conversation, and a summary of them lands in BigQuery for analysis afte
 2. **The root owns the tone; the specialist owns the ruling.** The root may rewrite *how*
    something is said. It may never change *what* was determined — and it may never invent an
    answer a specialist declined to give.
+
+Everything above — routing, tool calls, retrieved chunks, specialist replies — lands in **one
+session event log**, because `single_turn` sub-agents run inline in the parent's session
+(2.2 / 2.7).
 
 ---
 
@@ -745,10 +841,10 @@ not later.
 
 | Item | When it bills | Notes |
 |---|---|---|
-| RAG Engine corpus (Spanner) | **Continuously while the corpus exists** | The big one. `rag-down` stops it. **Get the number** |
-| Model calls | Per request — **~3x per turn** (2.2) | Prepaid AI Studio credits. All Pro (2.10) |
+| RAG Engine managed DB | **Continuously while the tier is provisioned** | The big one. `rag-down` does **not** stop it — `rag-unprovision` does (2.5). **Get the number** |
+| Model calls | Per request — ~3 per turn (2.2) | Prepaid AI Studio credits. One Pro hop, two Flash (2.10) |
 | Embedding at ingest | Per `rag-up` | Pennies for a few PDFs |
-| Agent Engine sessions | Per use | No standing instance — this is why not Cloud SQL (2.7) |
+| Agent Engine sessions + Memory Bank | Per use | No standing instance — this is why not Cloud SQL (2.7) |
 | Agent Runtime | Per use; not idle between turns | Possible small floor — **measure it** |
 | Secret Manager | Negligible | |
 | BigQuery outcome log | Storage + query, nothing while idle | Free at this volume (2.15) |
@@ -759,7 +855,8 @@ not later.
 cost and measure one real conversation's token usage. A document this concerned with cost
 should contain at least two actual dollar amounts.
 
-**The one habit that matters:** run `rag-down` when you stop working.
+**The one habit that matters:** run `make rag-status` before you walk away, and
+`make rag-unprovision` when you are done for a while. `rag-down` alone leaves the meter running.
 
 ---
 
@@ -767,14 +864,16 @@ should contain at least two actual dollar amounts.
 
 ### 6.1 Environment — DONE
 - [x] Git repository initialised; `.env` confirmed gitignored before any key lands.
-- [x] `app/config.py` created — single source for model ID, region, corpus name, session backend.
-- [x] Model set to `gemini-3.1-pro-preview` in one constant.
+- [x] `app/config.py` created — single source for model IDs, regions, corpus name, document
+      names, and the session/memory backends.
+- [x] Models split by job: `SPECIALIST_MODEL` (Pro) and `ROOT_MODEL` (Flash), one constant each.
 - [x] `RAG_CORPUS_LOCATION` pinned separately from `GOOGLE_CLOUD_LOCATION` (`global` is a
       model-serving value and is not a valid corpus region).
 - [x] `.env` / `.env.example` document the split-billing switch (2.9) and both credential paths.
-- [ ] Clear the stale `GOOGLE_APPLICATION_CREDENTIALS` (points at a deleted bootcamp key file).
-      Confirmed it is *not* in any config file — it lives only in one long-running terminal
-      session. Relaunching from a fresh terminal fixes it permanently.
+- [x] Stale `GOOGLE_APPLICATION_CREDENTIALS` handled. Confirmed it is *not* in any profile file —
+      it is inherited from the terminal that launched the session. `scripts/rag_corpus.py` now
+      detects the missing key file and falls back to gcloud ADC instead of failing on a
+      traceback. Relaunching from a fresh terminal clears it properly.
 - [ ] Get an AI Studio API key into `.env`, then flip `GOOGLE_GENAI_USE_VERTEXAI=false`.
       *Both* steps, or model calls silently keep billing GCP.
 
@@ -782,17 +881,25 @@ should contain at least two actual dollar amounts.
 - [x] `tarnfield_returns_policy.pdf` and `tarnfield_product_catalogue.pdf` supplied.
 - [x] `tarnfield_billing_policy.pdf` drafted. Text lives in `scripts/make_billing_policy.py`
       so wording changes are diffable; re-run it to regenerate.
-- [ ] Deliberately leave some plausible questions **unanswered** by both documents. Without
-      that, §4's refusal cases have nothing real to test against.
-- [ ] Include at least one genuine cross-domain seam (a refund clause that touches both) so
-      the 2.1 boundary is exercised rather than assumed.
+- [x] Plausible questions left **unanswered** across all three documents, for §4's refusal
+      cases: buy-now-pay-later, business invoicing and purchase orders, price-drop refunds,
+      student discounts, paying in instalments. Asserted absent by the generator.
+- [x] Cross-domain seam written in deliberately: billing §5 covers refund *mechanics* and
+      defers *eligibility* to the returns policy, so the 2.1 boundary is exercised by the
+      documents themselves rather than assumed.
+- [x] A genuinely hard multi-clause case exists: billing §7, where returning part of an order
+      drops it below a discount code's minimum spend and the refund is smaller than expected.
 
 ### 6.3 Get retrieval working — before any agent exists
-- [ ] Study the RAG recipe — do not write retrieval code from memory.
-- [ ] Write `make rag-up` / `make rag-down`.
-- [ ] Ingest both PDFs into one corpus; confirm a hand-written query returns the right clause.
+- [x] `scripts/rag_corpus.py` + `make rag-up` / `rag-status` / `rag-down` / `rag-unprovision`.
+      Corpus resolved by display name, never by ID (2.6). `rag-status` runs clean against the
+      project and prints the billing tier.
+- [ ] Run `make rag-up` and ingest all three PDFs into one corpus.
+- [ ] Confirm a hand-written query returns the right clause.
       *If retrieval is broken, every downstream result is noise.*
 - [ ] Verify per-specialist scoping (2.4): a billing query must not return returns chunks.
+- [ ] Sanity-check the seam: "can I return the Solstice trainers" must surface the catalogue's
+      final-sale line, not just the general 14-day rule.
 
 ### 6.4 Build the agents
 - [ ] Session service selection (2.7) — SQLite locally, one function, env-var switched.
@@ -818,7 +925,7 @@ should contain at least two actual dollar amounts.
 - [ ] Start with 1–2 cases, not a suite.
 - [ ] Grade routing, retrieval, reasoning and delivery **separately** — this is what 2.1 and
       2.3 bought us.
-- [ ] Add the five must-have cases in §4.
+- [ ] Add the seven must-have cases in §4.
 - [ ] Record tokens and latency per conversation — §1 has two targets that need real numbers.
 - [ ] Expect 5–10 rounds of fixing. This is normal, not a sign of trouble.
 
@@ -856,12 +963,13 @@ should contain at least two actual dollar amounts.
 - **No second corpus for billing** — a second standing Spanner bill for scoping we can do in
   code (2.4)
 - **No LLM router as a separate component** — the root's own routing decision is the router (2.10)
-- **No Cloud SQL for sessions** — a standing instance cost to store demo conversations (2.7)
+- **No Cloud SQL anywhere** — a standing instance with no teardown command, for demo
+  conversations and twenty fake orders (2.7, 2.12)
 - **No autonomous actions at all in v1** — both specialists file requests; humans approve (2.11)
 - **No two-phase confirmation token** — the human gate subsumes it; two mechanisms for one
   property is latency without safety (2.12)
 - **No native grounding** — would have hidden retrieval from evaluation (2.3)
-- **No self-managed vector database** — absurd for a handful of PDFs (2.5)
+- **No self-managed vector database** — absurd for three PDFs (2.5)
 - **No CI/CD yet** — premature while the design is moving (2.14)
 - **No real order-system integration yet** — mocks are enough to evaluate behaviour (2.12)
 - **No transcript export to BigQuery** — one deliberate outcome table beats a standing pipeline
