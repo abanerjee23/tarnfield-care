@@ -53,7 +53,7 @@ These are placeholders. Real criteria should come from you. **Open question #1 b
 | Refusal correctness | ~100% — says "I don't know" when the policy is silent | The most important safety metric here |
 | Action proposal accuracy | ~100% correct tool, correct arguments | A wrong refund is worse than a wrong sentence |
 | **Ungated actions** | **0** | 2.11 is an invariant, not a target. Any action completing without human approval is a bug |
-| **Human override rate** | Track it, no target yet | The least fakeable measure of whether the agent's judgement is trustworthy |
+| **Human override rate** | Track it, no target yet | The least fakeable measure of whether the agent's judgement is trustworthy (2.15) |
 | **p95 latency** | 8s target, >15s a failure — **ASSUMPTION** | Multi-hop turns (2.2) make this a real risk |
 | **Cost per conversation** | TBD — set a number | Can't evaluate 2.10's trade-off without it |
 
@@ -594,6 +594,63 @@ are cheap. The reverse mistake — building a pipeline for an agent you then red
 
 ---
 
+### 2.15 Outcomes are logged to BigQuery, keyed by order
+
+**Decision.** Every resolved case emits one structured Cloud Logging entry, routed to BigQuery
+by a log sink and queried with SQL. One row per outcome, keyed by order id so it joins back to
+the fixture.
+
+```json
+{
+  "event": "case_outcome",
+  "order_id": "TF-88213",
+  "specialist": "returns_exchanges",
+  "determination": "not_eligible",
+  "clause_cited": "catalogue:TF-FW-106:final_sale",
+  "action_requested": "none",
+  "request_ref": null,
+  "human_decision": null,
+  "latency_ms": 6100,
+  "model": {"root": "gemini-3.8-flash", "specialist": "gemini-3.1-pro-preview"}
+}
+```
+
+**Why.** Two of §1's criteria are otherwise unmeasurable. `human_decision`, filled in at review,
+*is* the human override rate from 2.11 — the least fakeable signal we have about whether the
+agent's judgement can be trusted, and the evidence that would justify ungating an action type
+later. `latency_ms` and token counts are the other blank in §1. Keying on order id means a
+failure can be traced to the specific case and clause that produced it, rather than to a vibe.
+
+**Fixtures are inputs; outcomes are outputs.** They are deliberately separate stores. The
+fixture (2.12) is read-only seed data that ships with the container and lives in git. The
+outcome log is append-only, grows forever, and lives outside the container. Mixing them would
+let production outcomes mutate the eval baseline underneath us — a database would not have
+saved us from that, it would just have made it easier to do by accident.
+
+**Why not run sessions out of BigQuery too.** The session service (2.7) is *operational* state:
+it is read and written on every single turn to reconstruct the conversation. BigQuery is an
+analytics store — append-optimised, high-latency, and not built for per-turn reads. It is the
+warehouse, not the application database. The right relationship is the usual one: sessions serve
+the live conversation, and a summary of them lands in BigQuery for analysis after the fact.
+
+**What it costs us.**
+
+- **No standing instance** — BigQuery bills storage and query, and bills nothing while idle.
+  This is the property Cloud SQL lacked. At this volume it is effectively free.
+- **A second log sink.** The scaffold already builds the pipeline
+  (`deployment/terraform/single-project/telemetry.tf` — dataset, sink, tables), but its existing
+  filter matches only GenAI inference logs, so our `case_outcome` events need a sink of their
+  own. A few lines of Terraform, not a new system.
+- **Outcome rows are structured and contain no customer text by design.** No transcripts, no
+  contact details — an order id, a determination, a clause reference. That keeps the analytics
+  store out of scope for 2.8's deletion problem.
+- **Note what is already flowing, though.** The scaffold's existing completions sink exports
+  prompt and response content to BigQuery. That is genuinely useful for debugging, and it is
+  also a second copy of anything a customer typed. Fine for fake customers. **Before real ones,
+  that sink needs a retention policy and a redaction decision** — it will not announce itself.
+
+---
+
 ## 3. How it fits together
 
 ```
@@ -687,6 +744,7 @@ not later.
 | Agent Engine sessions | Per use | No standing instance — this is why not Cloud SQL (2.7) |
 | Agent Runtime | Per use; not idle between turns | Possible small floor — **measure it** |
 | Secret Manager | Negligible | |
+| BigQuery outcome log | Storage + query, nothing while idle | Free at this volume (2.15) |
 | SQLite sessions (local) | Free | |
 | Dummy order/returns/billing data | Free | JSON fixture in the repo (2.12) |
 
@@ -762,6 +820,8 @@ should contain at least two actual dollar amounts.
 - [ ] Smoke-test the managed session path — it cannot be tested before this point (2.7).
 - [ ] Measure real idle cost over 24h (2.13).
 - [ ] Tracing, so production failures are diagnosable across three agents.
+- [ ] `case_outcome` log sink + BigQuery table (2.15), and the review step that fills in
+      `human_decision` — without it the override rate stays theoretical.
 - [ ] Write the demo runbook, `rag-up` step first (2.6).
 
 ---
