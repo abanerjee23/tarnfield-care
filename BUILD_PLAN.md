@@ -55,7 +55,7 @@ These are placeholders. Real criteria should come from you. **Open question #1 b
 | Action proposal accuracy | ~100% correct tool, correct arguments | A wrong refund is worse than a wrong sentence |
 | **Ungated actions** | **0** | 2.11 is an invariant, not a target. Any action completing without human approval is a bug |
 | **Human override rate** | Track it, no target yet | The least fakeable measure of whether the agent's judgement is trustworthy (2.15) |
-| **p95 latency** | 8s target, >15s a failure — **ASSUMPTION** | Multi-hop turns (2.2) make this a real risk |
+| **p95 latency** | 8s target, >15s a failure — **ASSUMPTION, likely optimistic** | A turn is 4–6 sequential model calls, 2–4 of them Pro (2.2) |
 | **Cost per conversation** | TBD — set a number | Can't evaluate 2.10's trade-off without it |
 
 ### Product risks
@@ -133,9 +133,21 @@ session event log automatically.
 
 **What it costs us.**
 
-- **Three model calls on a typical turn** — root decides, specialist reasons (plus retrieval),
-  root composes — and more when two specialists are involved. Only the middle hop is Pro
-  (2.10), but it is the slow one, so this is the dominant latency driver in the system.
+- **Four to six model calls on a typical turn, not three.** The easy mistake is to count the
+  boxes in the diagram. What actually bills is model *invocations*, and **every tool call
+  re-invokes the model**: the specialist is called once to decide to search, and again to reason
+  over the chunks that come back. Add an order lookup and that is a third.
+
+  | Hop | Model | Calls |
+  |---|---|---|
+  | Root decides who handles it | Flash | 1 |
+  | Specialist: search → reason (+ lookup) | **Pro** | **2–4** |
+  | Root composes the reply | Flash | 1 |
+
+  So ~2 Flash and 2–4 Pro, before Memory Bank's consolidation call (2.8) and before a
+  cross-domain question invokes both specialists. **The expensive model is on the hop that
+  multiplies**, which is the opposite of convenient — but it is also the hop doing the work that
+  matters (2.10). This is the dominant cost *and* latency driver in the system.
 - **A summarisation layer between the answer and the customer.** The root can soften a
   specialist's "no" into something that reads like a "maybe." **The root's instructions must
   forbid changing the substance of a specialist's determination** — tone is the root's job,
@@ -445,8 +457,8 @@ this decision.
 **What it costs us.**
 
 - **Two bills and two quota systems** to reason about. Cost-per-conversation now requires
-  adding numbers from two consoles — and 2.2 means roughly three model calls per turn, only one
-  of them Pro.
+  adding numbers from two consoles — and 2.2 means 4–6 model calls per turn, of which 2–4 are
+  Pro. Preview-tier rate limits are hit correspondingly faster.
 - **An API key to manage.** Once deployed, it must live in Secret Manager, never in `.env`.
   A key in a file is a key in a screenshot eventually.
 - **AI Studio has weaker enterprise guarantees** than Vertex — no VPC Service Controls, no data
@@ -491,8 +503,10 @@ sentence. Seniority in the diagram is not difficulty of the work.
      to slip. **The "a hard no must survive the root's rewrite" case in §4 is therefore a
      must-have, not a nice-to-have.** If Flash cannot hold that line, the root moves to Pro and
      we accept the cost.
-- **Latency is still the risk, not cost.** A turn is root → specialist (+ retrieval) → root.
-  Flash at both ends of that chain helps, but the middle hop is a reasoning model and dominates.
+- **Latency is still the risk, not cost.** Flash at both ends of the chain helps, but the
+  middle is 2–4 *sequential* Pro calls (2.2), and that dominates. **The 8s p95 target in §1 may
+  well prove optimistic** — it was set before this count was worked through properly. Treat it
+  as the thing to measure first in §6.5, not as a number we have any evidence for.
   **The root must stream and acknowledge before delegating** so the customer sees *"Let me check
   that for you"* rather than dead air.
 - **Two models means two deprecation clocks.** `gemini-3.1-pro-preview` is a preview model with
@@ -842,7 +856,7 @@ not later.
 | Item | When it bills | Notes |
 |---|---|---|
 | RAG Engine managed DB | **Continuously while the tier is provisioned** | The big one. `rag-down` does **not** stop it — `rag-unprovision` does (2.5). **Get the number** |
-| Model calls | Per request — ~3 per turn (2.2) | Prepaid AI Studio credits. One Pro hop, two Flash (2.10) |
+| Model calls | Per turn — ~2 Flash + **2–4 Pro** (2.2) | Prepaid AI Studio credits. Tool calls re-invoke the model, so Pro multiplies |
 | Embedding at ingest | Per `rag-up` | Pennies for a few PDFs |
 | Agent Engine sessions + Memory Bank | Per use | No standing instance — this is why not Cloud SQL (2.7) |
 | Agent Runtime | Per use; not idle between turns | Possible small floor — **measure it** |
@@ -945,7 +959,7 @@ should contain at least two actual dollar amounts.
 | # | Question | How we settle it |
 |---|---|---|
 | 1 | Real success criteria, including latency and cost targets | You replace the placeholders in §1 — this gates §6.5 |
-| 2 | Is a multi-hop turn fast enough for a chat UX? | Measure p95 in §6.5. If not, 2.10 reopens |
+| 2 | Is a 4–6 call turn fast enough for a chat UX? | Measure p95 in §6.5 before trusting §1's target. If not, 2.10 reopens |
 | 3 | What does the RAG corpus actually cost per month? | Pricing calculator, before §6.3 |
 | 4 | Does idle Agent Runtime bill? | Deploy, wait 24h, read the billing console |
 | 5 | Is the `customtools` model variant better? | A/B once evals exist |
