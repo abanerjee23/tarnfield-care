@@ -56,5 +56,17 @@ BILLING_POLICY_DOC = os.getenv("BILLING_POLICY_DOC", "billing_policy.pdf")
 SESSION_BACKEND = os.getenv("SESSION_BACKEND", "sqlite")
 SESSION_DB_PATH = os.getenv("SESSION_DB_PATH", "./.sessions/sessions.db")
 
-# Set once deployed; required by VertexAiSessionService.
+# Set once deployed; required by BOTH VertexAiSessionService and
+# VertexAiMemoryBankService.
 AGENT_ENGINE_ID = os.getenv("AGENT_ENGINE_ID", "")
+
+
+# --- Memory (BUILD_PLAN 2.8) --------------------------------------------------
+# Separate service from sessions, and a separate job: sessions hold the literal
+# event log, memory holds distilled facts about a customer across conversations.
+#
+# Real memory only exists once deployed -- VertexAiMemoryBankService needs an
+# AGENT_ENGINE_ID. The local backend is a non-persistent stand-in that exercises
+# the code path but loses everything on restart, so memory-dependent evals are
+# not trustworthy locally.
+MEMORY_BACKEND = os.getenv("MEMORY_BACKEND", "in_memory")

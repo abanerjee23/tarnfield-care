@@ -300,43 +300,53 @@ response back to the root. You do not need to build agent-to-agent logging. It's
 
 ---
 
-### 2.8 Memory Bank is deferred — and it is not the thing you described
+### 2.8 Memory Bank as well as sessions — they are different things
 
-**Decision.** No Vertex AI Memory Bank in v1. Revisit when there's a concrete use for it.
+**Decision.** Both services are wired. They are independent: `Runner` takes a required
+`session_service` and an optional `memory_service` (`google/adk/runners.py:210`).
 
-**Why.** You asked for "all conversations stored in a memory bank with session history
-preserved." Those are two different products, and the one you described is the session service
-(2.7), not Memory Bank:
-
-| | What it holds | What it's for |
+| | Holds | Answers |
 |---|---|---|
-| **Session service** | The complete, literal event log of a conversation | Conversation continuity, debugging, evals |
-| **Memory Bank** | LLM-distilled facts *extracted* from past sessions | Personalisation across separate conversations |
+| **Session service** (2.7) | The literal event log of one conversation | "What did we just say?" |
+| **Memory Bank** | LLM-distilled facts drawn from past sessions | "What do we know about this customer?" |
 
-Memory Bank does not archive conversations — it reads them and writes summaries like *"prefers
-email contact, returned a jacket in March."* Pointing it at agent-to-agent traffic would fill it
-with distilled noise about our own routing decisions and bill us an LLM call to do it.
+Memory Bank is *not* a conversation archive — it reads sessions and writes summaries like
+*"prefers email contact, returned a jacket in March."* The full record you asked for comes
+from the session service, which already captures agent-to-agent traffic because specialists
+run inline in the root's session (2.2). Memory Bank is the separate thing on top:
+personalisation across conversations.
 
-Three concrete reasons to defer:
+Same two-tier shape as sessions:
 
-1. **It can't run locally.** `VertexAiMemoryBankService` requires an `agent_engine_id`
-   (`google/adk/memory/vertex_ai_memory_bank_service.py:175`) — it's bound to a *deployed*
-   Agent Engine. Adopting it now means the local playground and the deployed bot behave
-   differently from day one.
-2. **It costs an extra LLM call per consolidation**, on top of the three Pro calls a turn
-   already costs (2.2). Cheaper-over-faster says no.
-3. **It's a customer-data store**, which collides with 2.9: model calls run through AI Studio,
-   which has no data residency commitment. Storing derived customer facts deserves its own
-   decision, not a default.
+| Environment | Service |
+|---|---|
+| Local dev | `InMemoryMemoryService` — non-persistent, but exercises the code path |
+| Deployed | `VertexAiMemoryBankService` |
 
-**What it costs us.** No personalisation — every conversation starts cold. A returning customer
-re-explains themselves. That's an acceptable v1 limitation for a policy Q&A bot, where the
-answer depends on the policy and the order, not on who's asking.
+Read back into a turn with the `load_memory` tool.
 
-**The trigger to revisit:** when we have a use case where the *right answer changes* based on a
-previous conversation. Until then it's cost without a customer benefit.
+**Why.** A returning customer who re-explains their situation every time is a visibly worse
+experience, and for a service bot that gap is obvious to anyone demoing it.
 
----
+**What it costs us.**
+
+- **Real memory only exists after the first deploy.** `VertexAiMemoryBankService` requires an
+  `agent_engine_id` (`google/adk/memory/vertex_ai_memory_bank_service.py:175`) — it is bound to
+  a deployed Agent Engine. Locally you get the in-memory stand-in, which loses everything on
+  restart. **The local and deployed bots therefore behave differently**, and that difference
+  will show up as "works on my machine" bugs in the memory-dependent cases. Evals that depend
+  on memory are not trustworthy locally.
+- **An extra LLM call for consolidation**, on top of the three Pro calls a turn already costs
+  (2.2). Measure it with the rest in §6.5.
+- **It is a customer-data store**, which collides with 2.9 — model calls run through AI Studio,
+  which has no data residency commitment. Fine for fake policy documents and fake customers.
+  **The moment real customer data is involved, this decision and 2.9 have to move together.**
+- **Memory can be wrong, and wrong memory is worse than none.** A distilled fact like "customer
+  always gets free returns" that was true once becomes a confident error later. Retrieved
+  memory is *context*, never a policy source: a ruling must still come from the corpus.
+  **This needs its own eval case** — a misleading stored memory that must not override the
+  policy.
+
 
 ### 2.9 Split billing — models on AI Studio, infrastructure on GCP
 
@@ -564,6 +574,7 @@ not later.
 - A hard "no" from a specialist → must still read as "no" after the root rewrites it (2.2).
 - The corpus is down → must say so, never answer from general knowledge (2.6).
 - A poisoned chunk containing injection text → must be treated as data (§3 rule 1).
+- A stale or misleading stored memory → must not override the policy ruling (2.8).
 
 ---
 
@@ -619,6 +630,8 @@ should contain at least two actual dollar amounts.
 
 ### 6.4 Build the agents
 - [ ] Session service selection (2.7) — SQLite locally, one function, env-var switched.
+- [ ] Memory service selection (2.8) — in-memory locally, Memory Bank once deployed, plus
+      the `load_memory` tool. Real behaviour is untestable until §6.6.
 - [ ] `search_returns_policy` / `search_billing_policy`, each scope-asserting, each with a clean
       failure message when the corpus is absent.
 - [ ] Mocked order, return, and invoice tools; irreversible ones two-phase (2.12).
@@ -656,7 +669,7 @@ should contain at least two actual dollar amounts.
 | 5 | Is the `customtools` model variant better? | A/B once evals exist |
 | 6 | Are order/invoice lookups mocked forever, or real? | Your call — changes scope significantly |
 | 7 | Who updates the corpus when policy changes? | Unowned drift is risk #2 in §1 |
-| 8 | Do we ever need cross-session personalisation? | The trigger that reopens 2.8 |
+| 8 | Does memory ever override policy in practice? | The eval case in 2.8 — watch it closely |
 
 ---
 
@@ -667,7 +680,6 @@ should contain at least two actual dollar amounts.
 - **No second corpus for billing** — a second standing Spanner bill for scoping we can do in
   code (2.4)
 - **No Flash tier / model router** — an unmeasured saving bought with a real failure mode (2.10)
-- **No Memory Bank** — it's not a conversation archive, and it can't run locally (2.8)
 - **No Cloud SQL for sessions** — a standing instance cost to store demo conversations (2.7)
 - **No billing write actions** — money moving on a model's say-so, with no human checkpoint (2.11)
 - **No native grounding** — would have hidden retrieval from evaluation (2.3)
