@@ -314,12 +314,29 @@ them next. Only the corpus can change the answer.**
 | Memory Bank | One customer, across conversations | LLM-distilled, semantic search | **Never** |
 | **Policy corpus (2.5)** | The company's documents | Retrieved text, cited | **Yes — only this** |
 
-`user:` state is the layer most people miss. It gives persistent cross-conversation memory
-with no Memory Bank involved, works locally today with no `AGENT_ENGINE_ID`, and is exact
-rather than distilled. It is the system of record for anything we can name in advance.
+**The split, concretely.** The difference is who decides what gets written down: `user:` state
+is a form with fields we designed, Memory Bank is a colleague who listened to the call and took
+their own notes.
 
-Memory Bank sits alongside it for the thing `user:` state cannot do: context nobody could have
-declared a key for. *"I mentioned last time I need a wide fit."*
+*`user:` state — fields we name in advance.* The root agent asks every customer how they want
+to be contacted and for the detail itself, then stores both:
+
+| Key | Example | Set by |
+|---|---|---|
+| `user:contact_method` | `"email"` | Root, on first contact |
+| `user:contact_detail` | `"priya@example.com"` | Root, on first contact |
+| `user:customer_id` | `"C-4471"` | Order lookup |
+| `user:open_return_ref` | `"R-1029"` | Return initiation |
+
+Exact, free, deletable, identical locally and deployed. Asked once, not every conversation —
+which is itself the first visible payoff of having memory at all.
+
+*Memory Bank — everything else that transpired.* Whatever came up in a previous chat that no
+field could have anticipated: *"I mentioned last time I need a wide fit."* It goes to the
+specialist as context to reason with, never as a source of truth.
+
+Deciding the contact fields in advance is what keeps Memory Bank narrow. It is not being asked
+to remember an email address it might garble — it handles only the unstructured remainder.
 
 **Neither is the authoritative customer record.** In production that is the CRM and the order
 database. Agent memory is a convenience layer over systems of record — the moment a fact lives
@@ -669,6 +686,9 @@ should contain at least two actual dollar amounts.
 - [ ] Two specialists with `mode='single_turn'`. **Verify control actually returns to the root**
       before writing prompts — this is the 2.2 trap.
 - [ ] Root agent: routing, warm tone, explicit ban on altering a specialist's ruling.
+- [ ] Root collects `user:contact_method` and `user:contact_detail` on first contact, and
+      does NOT re-ask when they are already set (2.8). Needs an eval case: a returning
+      customer must not be asked for their email twice.
 - [ ] Log the model version from each response, to catch silent routing (2.9).
 
 ### 6.5 Evaluate — the phase that actually decides if this works
