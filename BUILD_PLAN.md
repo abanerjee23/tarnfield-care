@@ -1,0 +1,678 @@
+# BUILD PLAN — Customer Service Chatbot (Returns, Exchanges & Billing)
+
+**Status:** Architecture agreed. Environment fixes applied. Agent not yet built.
+**Last updated:** 2026-09-11
+**Project:** `customer-chatbot-rag` · GCP project `gemini-enterprise-learning`
+
+---
+
+## How to read this document
+
+Every significant choice below is written as **Decision → Why → What it costs us**. Nothing
+here is free. The point of writing the cost down is so that when something goes wrong later,
+you can tell the difference between "we chose this and accepted the downside" and "we didn't
+think about it."
+
+Anything marked **ASSUMPTION** is something I filled in that you have not confirmed. Anything
+marked **OPEN** is genuinely unknown and needs an experiment before we rely on it.
+
+---
+
+## 1. What we are building
+
+A customer service chatbot with three agents: an orchestrator that talks to the customer, and
+two specialists — **Returns & Exchanges** and **Billing** — that do the actual policy reasoning.
+
+Specialist answers are grounded in the company's actual policy documents rather than in
+whatever the model remembers about returns and billing policies in general.
+
+### Why this needs AI at all
+
+Worth asking honestly, because most "AI products" fail this test.
+
+A policy FAQ could be a search box. What a search box cannot do is handle *"I bought these
+boots 40 days ago, wore them twice, and the sole split — can I get my money back?"* That
+question requires reading a policy, applying several clauses at once (time window, wear
+condition, defect vs. change-of-mind), and reaching a judgement. That is genuinely language
+work.
+
+**But note the honest limit:** the *action* half of this bot (look up order #12345, start a
+return) is ordinary software. The AI should decide *when* to call those functions, not
+reimplement them. If we find ourselves asking the model to do arithmetic on dates or invent
+order statuses, we have made a design error.
+
+### Success criteria — ASSUMPTION, please confirm or replace
+
+These are placeholders. Real criteria should come from you. **Open question #1 blocks §6.**
+
+| Metric | Target | Why this one |
+|---|---|---|
+| Grounded accuracy | ≥ 90% of answers correct *and* traceable to a policy clause | An answer that is right by luck is not a pass |
+| Retrieval hit rate | ≥ 95% — correct clause is in what we fetched | Separates "fetched wrong" from "reasoned wrong" |
+| **Routing accuracy** | ≥ 95% — right specialist for the question | New with the multi-agent design (2.1) |
+| Refusal correctness | ~100% — says "I don't know" when the policy is silent | The most important safety metric here |
+| Action accuracy | ~100% correct tool, correct arguments | A wrong refund is worse than a wrong sentence |
+| **p95 latency** | TBD — set a number | Three Pro calls per turn (2.2) makes this a real risk |
+| **Cost per conversation** | TBD — set a number | Can't evaluate 2.10's trade-off without it |
+
+### Product risks
+
+1. **Confident wrong answers about money.** The top risk. A customer told "yes, full refund"
+   when the policy says otherwise is a real financial and trust loss.
+2. **Silent policy drift.** PDFs get updated; the index does not. The bot then confidently
+   quotes a dead policy. There is no error message for this — it just goes quietly wrong.
+3. **Action without confirmation.** The bot starting a return the customer did not ask for.
+4. **Misrouting between specialists.** New with 2.1. A billing question answered from the
+   returns policy is a confident wrong answer with a plausible shape.
+5. **Prompt injection via documents.** Lower risk here (our own PDFs), but the pattern matters
+   — retrieved text must never be treated as instructions.
+
+---
+
+## 2. Decisions made, and what each one costs
+
+### 2.1 Three agents: an orchestrator and two domain specialists
+
+**Decision.**
+
+| Agent | Job | Talks to customer? |
+|---|---|---|
+| `customer_service` (root) | Understand intent, pick a specialist, deliver the answer in a warm, plain-English voice | **Yes — exclusively** |
+| `returns_exchanges` | Returns, exchanges, refund eligibility. Owns returns policy retrieval + return actions | No |
+| `billing` | Charges, invoices, payment methods, billing disputes. Owns billing policy retrieval | No |
+
+**Why.** The two domains have genuinely different policy documents, different tools, and
+different risk profiles. A single agent holding all of it needs one enormous system prompt in
+which the returns rules and the billing rules compete for attention — and the failure mode is
+silent blending of the two. Separate agents means each specialist's instructions can be
+specific and short, which is the single biggest lever on reliability.
+
+Routing to a specialist also gives us a **third separable grading dimension**. We can now ask
+three independent questions of a failed case: was it routed right, was the right clause
+fetched, was the reasoning correct. Three different fixes.
+
+**What it costs us.**
+
+- **A new failure mode that did not exist before: misrouting.** And a blurry boundary — *"I
+  want a refund for order #123"* is arguably both domains. **Refunds live with Returns &
+  Exchanges** (the eligibility judgement is the hard part); Billing handles money that moves
+  for reasons other than a return. This must be stated in both agents' instructions, because
+  an unstated boundary is a coin flip.
+- **Cross-domain questions need the root to call both specialists** and reconcile. That is the
+  case most likely to produce an incoherent answer. It needs its own eval case.
+- **Three prompts to maintain** instead of one, and a change in one specialist can shift
+  behaviour in the other through the root's summarisation.
+
+---
+
+### 2.2 Specialists run as `single_turn` sub-agents, not as transfers
+
+**Decision.** Specialists are attached via `sub_agents=[...]` with **`mode='single_turn'`** on
+each. They do their work and return control to the root, which writes the customer-facing reply.
+
+**Why.** Your requirement is that the root owns the customer's experience and the friendly tone.
+That only holds if control comes back.
+
+**This is the trap:** ADK's default for a sub-agent is `mode='chat'`, which makes it reachable
+via `transfer_to_agent` — and after a transfer, **the specialist talks to the customer
+directly**. The root never gets to reword anything. Attaching `sub_agents=[returns, billing]`
+without setting `mode` silently gives you the architecture you did not ask for, and it will
+look like it's working.
+
+`mode='single_turn'` is verified present in the installed ADK
+(`google/adk/agents/llm_agent.py:342`). ADK 2.6 explicitly documents this as preferred over
+wrapping specialists in `AgentTool` — `AgentTool`'s own docstring calls direct use
+"discouraged" (`google/adk/tools/agent_tool.py:115`). Single-turn sub-agents also **run inline
+in the parent's session**, which is what makes 2.7 work: every specialist step lands in the same
+session event log automatically.
+
+**What it costs us.**
+
+- **Three Pro calls on a typical turn** — root decides, specialist reasons (plus retrieval),
+  root composes — and more when two specialists are involved. This is the dominant cost and
+  latency driver in the whole system. See 2.10.
+- **A summarisation layer between the answer and the customer.** The root can soften a
+  specialist's "no" into something that reads like a "maybe." **The root's instructions must
+  forbid changing the substance of a specialist's determination** — tone is the root's job,
+  the ruling is not. This needs a dedicated eval case: a hard "no" from the specialist must
+  survive the root's rewrite as a "no."
+- **Citations have to survive two hops** to meet the grounded-accuracy criterion.
+
+---
+
+### 2.3 Retrieval lives inside each specialist as a normal tool
+
+**Decision.** Each specialist calls a plain Python function that searches the policy documents.
+The model sees only "a tool that takes a question and returns text." It does not know RAG Engine
+exists.
+
+The alternative was *native grounding*, where you hand the data source to the model and
+Google's infrastructure does retrieval invisibly, server-side, before the model writes.
+
+**Why.** Two reasons, and the second matters more than the first.
+
+*Billing:* native grounding only works through Vertex, which would force model calls onto your
+GCP bill and strand your prepaid AI Studio credits (see 2.9).
+
+*Observability — the real reason:* with retrieval as a tool call, the search query and the
+returned chunks appear in the trace as inspectable artifacts. That lets us grade separately:
+
+- **Did it fetch the right policy clause?** (a retrieval problem — fix chunking or the query)
+- **Did it reason correctly over what it fetched?** (a model problem — fix the prompt)
+
+These have completely different fixes. Native grounding collapses them into one number that
+tells you something is wrong but never what. Debugging by guesswork is the thing to avoid.
+
+**What it costs us.** More code to write and maintain — we own the retrieval function, its
+error handling, and its failure modes. Native grounding would be less work. We are paying in
+effort for the ability to see inside the system, which is the right trade for a product whose
+whole value proposition is being trustworthy about policy.
+
+---
+
+### 2.4 One corpus, two scoped retrieval tools — not two corpora
+
+**Decision.** All policy PDFs go into a **single** RAG Engine corpus. Each specialist gets its
+own retrieval function that scopes results to its own documents.
+
+**Why.** Purely cost. Per 2.5, each corpus provisions its own managed vector store and bills
+continuously. Two corpora is two standing bills for a handful of PDFs. The isolation a second
+corpus would buy is achievable in the tool layer for free.
+
+**What it costs us.**
+
+- **Scoping is now our code's job, not the platform's.** If the filter is wrong, the billing
+  agent can retrieve returns policy text — precisely the cross-contamination 2.1 exists to
+  prevent, arriving through the back door. **Each specialist's retrieval tool must assert that
+  every returned chunk came from its own document set**, and drop anything that didn't. Cheap
+  to write, and it turns a silent correctness bug into a visible one.
+- Chunks from both domains share an embedding space, so a query phrased ambiguously can rank
+  the other domain's text highly. The assertion above is what catches this.
+
+---
+
+### 2.5 Vertex AI RAG Engine as the retrieval backend
+
+**Decision.** Policy PDFs go into a Vertex AI RAG Engine corpus. It handles parsing, chunking,
+embedding, and the vector index.
+
+**Why.** It is the managed RAG capability inside Agent Platform — the thing you asked for by
+name. We do not build or operate a vector database. For a handful of PDFs, building one would
+be absurd.
+
+**What it costs us — read this one carefully.**
+
+RAG Engine's managed vector store **provisions a Spanner database instance** behind the scenes.
+Basic tier is 100 processing units, and it **bills continuously from the moment the corpus
+exists** — whether you query it a thousand times a day or never. You cannot pause it. The only
+way to stop the meter is to delete the corpus.
+
+This is the single largest standing cost in the project, and it is easy to miss because
+nothing in the interface announces it. Which leads directly to the next decision.
+
+> **TODO before building:** put the actual dollar figure in §5. A cost decision without a
+> number can't be weighed. 100 PU/month in our region — get it from the pricing calculator.
+
+---
+
+### 2.6 The corpus is ephemeral — created for work, deleted afterwards
+
+**Decision.** Two commands:
+
+- `make rag-up` — create the corpus and ingest the PDFs
+- `make rag-down` — delete the corpus, stopping the Spanner charge
+
+Normal cycle: bring it up, build or evaluate or demo, tear it down.
+
+**Why.** It converts an always-on cost into a pay-for-what-you-use one. With a few small PDFs,
+re-ingestion takes minutes and costs pennies in embedding generation. The economics strongly
+favour deleting it.
+
+**What it costs us.**
+
+- **A demo can't be spontaneous.** You need a few minutes of lead time to run `rag-up`. Do not
+  learn this five minutes before showing someone. **The deployed agent has the same
+  constraint** — it is a demo that requires `rag-up` first, not an always-on service. That
+  belongs in a runbook, not in your memory.
+- **A live agent breaks when the corpus is gone.** A deployed bot with no corpus fails at the
+  retrieval call. The tool must return a clean "policy lookup is unavailable" rather than
+  crashing — and the specialist must say that honestly instead of falling back on the model's
+  general knowledge of returns policies. **This is a real safety requirement, not polish:**
+  an ungrounded answer about refunds is exactly the failure this product exists to prevent.
+  Note this must hold through the root as well (2.2) — the root must not smooth "I couldn't
+  check the policy" into something that sounds like an answer.
+- **The corpus ID changes on every rebuild.** So nothing may hardcode it. We look it up by a
+  stable display name (`RAG_CORPUS_DISPLAY_NAME` in `.env`), or write the ID into `.env`
+  during `rag-up`.
+- **Evaluation requires the corpus to be up.** The loop is `rag-up` → eval → `rag-down`.
+  Forgetting this produces eval failures that look like model problems but aren't.
+
+*Why put it in a Makefile rather than clicking in the console:* a two-command ritual you run
+every week is a ritual you will eventually do wrong from memory. Especially the `rag-down`
+half — the one that costs money when skipped.
+
+---
+
+### 2.7 Session history: SQLite locally, managed sessions once deployed
+
+**Decision.** One `BaseSessionService` interface, two implementations chosen by env var:
+
+| Environment | Service | Storage |
+|---|---|---|
+| Local dev, playground, evals | `SqliteSessionService` | `./.sessions/sessions.db` |
+| Deployed to Agent Runtime | `VertexAiSessionService` | Managed by Agent Engine |
+
+**Why — and this answers your SQLite-vs-Google-Cloud question directly: it's both, at different
+stages, and not for the reason you'd expect.**
+
+It isn't a cost trade-off, because **SQLite is not an option in production at all.** Agent
+Runtime containers have ephemeral filesystems and can be replaced between turns. A SQLite file
+written on one instance may simply not exist for the next request. SQLite deployed isn't
+"cheaper than managed sessions" — it's a session store that loses conversations
+non-deterministically, which is worse than having none because it fails quietly.
+
+So the real choice is between managed sessions and running our own Postgres/Cloud SQL. Managed
+sessions win on your cheaper-over-faster preference: Cloud SQL has a **standing instance cost
+in the same category as the RAG corpus**, and we'd be paying it to store a few demo
+conversations. Managed sessions have no standing instance.
+
+Locally, SQLite is strictly better than the managed service: free, no network round-trip per
+turn, and the whole conversation history is inspectable with any SQL client — which matters a
+lot while debugging a three-agent system.
+
+Both are first-class in the installed ADK (`google/adk/sessions/sqlite_session_service.py`,
+`vertex_ai_session_service.py`).
+
+**What it costs us.**
+
+- **Two code paths, so a bug can exist in one and not the other.** Mitigation: the selection
+  lives in exactly one function, and both paths are exercised — local by daily use, deployed by
+  a smoke test after each deploy.
+- **The local DB is a real file holding real conversation text.** It is gitignored; keep it
+  that way.
+- Agent Engine sessions are only reachable once something is deployed, so the deployed path
+  cannot be tested until §6.5.
+
+**What this gets you for free:** because specialists run inline in the root's session (2.2),
+the session event log already contains *everything* you asked for — customer turns, the root's
+routing decision, each specialist's tool calls, the retrieved chunks, and the specialist's
+response back to the root. You do not need to build agent-to-agent logging. It's the event log.
+
+---
+
+### 2.8 Memory Bank is deferred — and it is not the thing you described
+
+**Decision.** No Vertex AI Memory Bank in v1. Revisit when there's a concrete use for it.
+
+**Why.** You asked for "all conversations stored in a memory bank with session history
+preserved." Those are two different products, and the one you described is the session service
+(2.7), not Memory Bank:
+
+| | What it holds | What it's for |
+|---|---|---|
+| **Session service** | The complete, literal event log of a conversation | Conversation continuity, debugging, evals |
+| **Memory Bank** | LLM-distilled facts *extracted* from past sessions | Personalisation across separate conversations |
+
+Memory Bank does not archive conversations — it reads them and writes summaries like *"prefers
+email contact, returned a jacket in March."* Pointing it at agent-to-agent traffic would fill it
+with distilled noise about our own routing decisions and bill us an LLM call to do it.
+
+Three concrete reasons to defer:
+
+1. **It can't run locally.** `VertexAiMemoryBankService` requires an `agent_engine_id`
+   (`google/adk/memory/vertex_ai_memory_bank_service.py:175`) — it's bound to a *deployed*
+   Agent Engine. Adopting it now means the local playground and the deployed bot behave
+   differently from day one.
+2. **It costs an extra LLM call per consolidation**, on top of the three Pro calls a turn
+   already costs (2.2). Cheaper-over-faster says no.
+3. **It's a customer-data store**, which collides with 2.9: model calls run through AI Studio,
+   which has no data residency commitment. Storing derived customer facts deserves its own
+   decision, not a default.
+
+**What it costs us.** No personalisation — every conversation starts cold. A returning customer
+re-explains themselves. That's an acceptable v1 limitation for a policy Q&A bot, where the
+answer depends on the policy and the order, not on who's asking.
+
+**The trigger to revisit:** when we have a use case where the *right answer changes* based on a
+previous conversation. Until then it's cost without a customer benefit.
+
+---
+
+### 2.9 Split billing — models on AI Studio, infrastructure on GCP
+
+**Decision.**
+
+| What | Where it runs | Who pays |
+|---|---|---|
+| All model calls | AI Studio via `GEMINI_API_KEY` | Your prepaid credits |
+| RAG Engine, Agent Runtime, Secret Manager | Vertex, via ADC | GCP project billing |
+
+**Why.** You have prepaid AI Studio credits and want them used. This works because the two are
+genuinely separate clients — the model call goes to one endpoint, the retrieval call to
+another. Decision 2.3 is what makes it possible; with native grounding these cannot be
+separated.
+
+**The mechanism, since this is the part that breaks confusingly:** setting
+`GOOGLE_GENAI_USE_VERTEXAI=false` + `GEMINI_API_KEY` routes *model* calls to AI Studio. RAG
+Engine and Agent Engine are separate client libraries and still need **ADC plus
+`GOOGLE_CLOUD_PROJECT`**. Both credential paths must be live at the same time. When this
+misconfigures, it presents as an auth error and reads like a bug rather than a consequence of
+this decision.
+
+**What it costs us.**
+
+- **Two bills and two quota systems** to reason about. Cost-per-conversation now requires
+  adding numbers from two consoles — and 2.2 means multiplying the model side by ~3.
+- **An API key to manage.** Once deployed, it must live in Secret Manager, never in `.env`.
+  A key in a file is a key in a screenshot eventually.
+- **AI Studio has weaker enterprise guarantees** than Vertex — no VPC Service Controls, no data
+  residency commitments. Fine for a portfolio project with fake policy documents. **Not fine if
+  real customer data ever flows through it.** If this ever goes near production, model calls
+  move to Vertex and this decision reverses. This is also why 2.8 is deferred.
+- **One unconfirmed report** on Google's developer forum claims AI Studio has silently routed
+  `gemini-3.1-pro-preview` traffic to a smaller model. Unverified, and forum posts are not
+  evidence. But it costs nothing to log the model version returned in each response and check
+  we got what we asked for — see 6.3.
+
+---
+
+### 2.10 One model everywhere: `gemini-3.1-pro-preview`
+
+**Decision.** All three agents use `gemini-3.1-pro-preview`. The previous two-model design
+(Flash for routing, Pro for reasoning) is **removed**. The ID lives in one constant,
+`app/config.py:MODEL`.
+
+**Why.** The earlier plan had a Flash router deciding which questions deserved Pro. That bought
+a cost saving we had never measured, in exchange for a new failure mode pointed squarely at the
+thing we care most about — a hard refund question misrouted to the cheap model. Its own
+mitigation was "when unsure, use Pro," which erodes most of the saving anyway.
+
+Measure first. Get the system correct, read the real cost per conversation, *then* decide
+whether a cheaper model for the root's routing-and-tone job is worth its risk. That's a
+one-line change when the data justifies it — which is the whole reason the ID is a single
+constant.
+
+**What it costs us.**
+
+- **This is the expensive configuration, and 2.2 multiplies it by three.** A single customer
+  turn is at least three Pro calls. We are knowingly paying for that in exchange for a system
+  whose failures we can attribute, and we have committed to measuring it rather than assuming.
+- **Latency is the bigger risk than cost.** Three sequential calls to a reasoning model is
+  plausibly slow enough to hurt a chat UX. **The root must stream**, and it should acknowledge
+  the customer before delegating, so the wait is visible rather than dead air. Set a p95 target
+  in §1 and hold the design to it.
+- **`gemini-3.1-pro-preview` is a preview model.** Tighter rate limits — now hit ~3x faster per
+  conversation than the old design — and Google commits to only ~2 weeks notice before
+  deprecation. This is not hypothetical: Gemini 3 Pro Preview was shut down on 2026-03-09 and
+  everyone was forced to migrate. One constant, one-line migration. Retry-with-backoff on 429
+  is not optional at 3 calls/turn.
+- **OPEN — worth one experiment:** there is a `gemini-3.1-pro-preview-customtools` variant
+  documented as better at prioritising custom tools over built-in ones. Our retrieval *is* a
+  custom tool, and specialists now live behind tool-shaped interfaces too. Worth an A/B once
+  evals exist. Not a default — an untested claim.
+
+---
+
+### 2.11 Billing is read-only in v1
+
+**Decision.** The billing specialist can explain charges, retrieve invoices, and cite billing
+policy. It **cannot** issue refunds, credits, or adjustments. Those escalate to a human.
+
+**Why.** Returns has a natural safety rail — a return request starts a process a human
+eventually touches. A billing adjustment is money moving on the model's say-so. Same risk
+category as 2.6's ungrounded-answer problem, but with a direct financial consequence and no
+natural checkpoint.
+
+This costs us almost nothing right now, because 2.12's actions are mocked anyway. Writing the
+constraint down *now* is what stops it from being quietly dropped later when the mocks are
+replaced with a real billing API.
+
+**What it costs us.** Lower automation rate — some conversations end in "a specialist will
+contact you" instead of a resolution. Acceptable. The escalation path is itself a product
+feature and needs to be a good experience, not a dead end.
+
+---
+
+### 2.12 Actions are mocked, and irreversible ones are two-phase
+
+**Decision.** `lookup_order`, `start_return`, `lookup_invoice` are mocked. Any irreversible
+action is split: a `prepare_*` call returns a human-readable summary plus a confirmation token,
+and the committing call **refuses without that token**.
+
+**Why.** Mocks let us evaluate behaviour now; real integration is a separate problem (open
+question #4). The two-phase part matters more: "confirm before acting" enforced only by the
+system prompt is enforced by the model's good manners. A tool that structurally cannot fire
+without a token the customer's "yes" produced is a guarantee, not a hope.
+
+It is nearly free to build this way while the tools are mocked. Retrofitting it onto a real
+returns API later is not.
+
+**What it costs us.** An extra turn before every action, and slightly more tool surface for the
+specialist to reason about. Both are the point.
+
+---
+
+### 2.13 Deploy to Agent Runtime
+
+**Decision.** Agent Runtime via Agent Engine. **The project is already scaffolded for this** —
+`agents-cli-manifest.yaml` has `deployment_target: 'agent_runtime'`. The earlier plan's
+`scaffold enhance` step was stale and has been removed.
+
+**Why.** It is managed: no containers to operate, and it is the natural path to publishing into
+Gemini Enterprise later. It is also what makes 2.7's managed sessions available.
+
+**What it costs us.**
+
+- Less control than Cloud Run, and a Google-managed environment we cannot inspect deeply.
+- **On your idle-cost concern:** Agent Runtime does *not* bill for idle time between
+  conversation turns. I could not confirm from public documentation whether a deployed but
+  completely untouched runtime holds a minimum instance, so a small floor may exist. **We
+  should measure this empirically** — deploy, leave it alone for 24h, read the billing
+  console. Do not assume either way.
+- Your instinct that the runtime was the cost risk turned out to be wrong — the RAG corpus
+  (2.5) is the expensive thing. Worth remembering as a general lesson: the always-on cost in
+  an AI system is usually storage and indexes, not compute.
+
+---
+
+### 2.14 No CI/CD yet
+
+**Decision.** `cicd_runner: 'skip'` in the manifest. CI/CD added later via `scaffold enhance`.
+
+**Why.** Pipelines are for code that has stabilised. Right now we do not know what the agent
+looks like. Automating a thing that changes daily is wasted work.
+
+**What it costs us.** Manual deploys until then, and a slightly larger setup task later. Both
+are cheap. The reverse mistake — building a pipeline for an agent you then redesign — is not.
+
+---
+
+## 3. How it fits together
+
+```
+                        Customer
+                            |
+                            v
+              ┌─────────────────────────────┐
+              │   customer_service (root)   │   gemini-3.1-pro-preview
+              │   - reads intent            │
+              │   - picks a specialist      │   ONLY agent that speaks
+              │   - delivers the answer     │   to the customer
+              │     in a warm, plain voice  │
+              └─────────────────────────────┘
+                     |                  |
+          single_turn|                  |single_turn
+         (control returns)        (control returns)
+                     v                  v
+      ┌──────────────────────┐   ┌──────────────────────┐
+      │  returns_exchanges   │   │      billing         │
+      │  - returns policy    │   │  - billing policy    │
+      │  - refund eligibility│   │  - charges, invoices │
+      │  - return actions    │   │  - READ-ONLY (2.11)  │
+      └──────────────────────┘   └──────────────────────┘
+             |         |               |         |
+             v         v               v         v
+   search_returns   prepare_return  search_billing  lookup_invoice
+     _policy()      start_return()   _policy()
+             |       (two-phase)         |
+             |                           |
+             └─────────┬─────────────────┘
+                       v
+          ┌────────────────────────────┐
+          │  ONE RAG Engine corpus     │   scoped per specialist
+          │  returns.pdf + billing.pdf │   in the tool layer (2.4)
+          └────────────────────────────┘
+
+  Every step above — routing, tool calls, retrieved chunks, specialist
+  replies — lands in ONE session event log, because single_turn
+  sub-agents run inline in the parent's session (2.2 / 2.7).
+```
+
+**Two rules hold this together:**
+
+1. **Retrieved policy text is *data*, never instructions.** If a document contains the words
+   "ignore previous instructions," that is a string we searched for, not a command. This
+   matters more once documents come from anywhere but you.
+2. **The root owns the tone; the specialist owns the ruling.** The root may rewrite *how*
+   something is said. It may never change *what* was determined — and it may never invent an
+   answer a specialist declined to give.
+
+---
+
+## 4. Evaluation strategy
+
+The multi-agent design changes what we grade. Every failed case gets attributed to exactly one
+of four layers, because each has a different fix:
+
+| Layer | Question | Fix lives in |
+|---|---|---|
+| Routing | Did the root pick the right specialist? | Root instructions, agent descriptions |
+| Retrieval | Was the right clause in what we fetched? | Chunking, query construction, corpus |
+| Reasoning | Given the right clause, was the ruling correct? | Specialist instructions |
+| Delivery | Did the root convey the ruling faithfully? | Root instructions |
+
+**This requires gold labels the dataset does not currently have.** Each eval case needs an
+expected specialist and an expected clause ID, or "retrieval hit rate ≥95%" is not a measurable
+claim and 2.3's whole payoff goes uncollected. Build this into the dataset schema from case #1,
+not later.
+
+**Cases that must exist, because they're the ones that hurt:**
+
+- Questions the policy does **not** answer → must refuse. The easiest failure to miss, because
+  the wrong answers look fluent.
+- A cross-domain question ("refund me for order #123") → tests the 2.1 boundary.
+- A hard "no" from a specialist → must still read as "no" after the root rewrites it (2.2).
+- The corpus is down → must say so, never answer from general knowledge (2.6).
+- A poisoned chunk containing injection text → must be treated as data (§3 rule 1).
+
+---
+
+## 5. What this costs to run
+
+| Item | When it bills | Notes |
+|---|---|---|
+| RAG Engine corpus (Spanner) | **Continuously while the corpus exists** | The big one. `rag-down` stops it. **Get the number** |
+| Model calls | Per request — **~3x per turn** (2.2) | Prepaid AI Studio credits. All Pro (2.10) |
+| Embedding at ingest | Per `rag-up` | Pennies for a few PDFs |
+| Agent Engine sessions | Per use | No standing instance — this is why not Cloud SQL (2.7) |
+| Agent Runtime | Per use; not idle between turns | Possible small floor — **measure it** |
+| Secret Manager | Negligible | |
+| SQLite sessions (local) | Free | |
+
+**Every figure above is a shape, not a number.** Before building, fill in the corpus monthly
+cost and measure one real conversation's token usage. A document this concerned with cost
+should contain at least two actual dollar amounts.
+
+**The one habit that matters:** run `rag-down` when you stop working.
+
+---
+
+## 6. Build sequence
+
+### 6.1 Environment — DONE
+- [x] Git repository initialised; `.env` confirmed gitignored before any key lands.
+- [x] `app/config.py` created — single source for model ID, region, corpus name, session backend.
+- [x] Model set to `gemini-3.1-pro-preview` in one constant.
+- [x] `RAG_CORPUS_LOCATION` pinned separately from `GOOGLE_CLOUD_LOCATION` (`global` is a
+      model-serving value and is not a valid corpus region).
+- [x] `.env` / `.env.example` document the split-billing switch (2.9) and both credential paths.
+- [ ] Clear the stale `GOOGLE_APPLICATION_CREDENTIALS` (points at a deleted bootcamp key file).
+      Confirmed it is *not* in any config file — it lives only in one long-running terminal
+      session. Relaunching from a fresh terminal fixes it permanently.
+- [ ] Get an AI Studio API key into `.env`, then flip `GOOGLE_GENAI_USE_VERTEXAI=false`.
+      *Both* steps, or model calls silently keep billing GCP.
+
+### 6.2 Write the policy documents — on the critical path
+- [ ] Author `returns_policy.pdf` and `billing_policy.pdf`. These do not exist yet, and the
+      earlier plan assumed they did.
+- [ ] Deliberately leave some plausible questions **unanswered** by both documents. Without
+      that, §4's refusal cases have nothing real to test against.
+- [ ] Include at least one genuine cross-domain seam (a refund clause that touches both) so
+      the 2.1 boundary is exercised rather than assumed.
+
+### 6.3 Get retrieval working — before any agent exists
+- [ ] Study the RAG recipe — do not write retrieval code from memory.
+- [ ] Write `make rag-up` / `make rag-down`.
+- [ ] Ingest both PDFs into one corpus; confirm a hand-written query returns the right clause.
+      *If retrieval is broken, every downstream result is noise.*
+- [ ] Verify per-specialist scoping (2.4): a billing query must not return returns chunks.
+
+### 6.4 Build the agents
+- [ ] Session service selection (2.7) — SQLite locally, one function, env-var switched.
+- [ ] `search_returns_policy` / `search_billing_policy`, each scope-asserting, each with a clean
+      failure message when the corpus is absent.
+- [ ] Mocked order, return, and invoice tools; irreversible ones two-phase (2.12).
+- [ ] Two specialists with `mode='single_turn'`. **Verify control actually returns to the root**
+      before writing prompts — this is the 2.2 trap.
+- [ ] Root agent: routing, warm tone, explicit ban on altering a specialist's ruling.
+- [ ] Log the model version from each response, to catch silent routing (2.9).
+
+### 6.5 Evaluate — the phase that actually decides if this works
+- [ ] Extend the dataset schema with expected-specialist and expected-clause labels (§4).
+- [ ] Start with 1–2 cases, not a suite.
+- [ ] Grade routing, retrieval, reasoning and delivery **separately** — this is what 2.1 and
+      2.3 bought us.
+- [ ] Add the five must-have cases in §4.
+- [ ] Record tokens and latency per conversation — §1 has two targets that need real numbers.
+- [ ] Expect 5–10 rounds of fixing. This is normal, not a sign of trouble.
+
+### 6.6 Deploy and observe
+- [ ] Deploy only after you agree the eval scores are good enough.
+- [ ] Smoke-test the managed session path — it cannot be tested before this point (2.7).
+- [ ] Measure real idle cost over 24h (2.13).
+- [ ] Tracing, so production failures are diagnosable across three agents.
+- [ ] Write the demo runbook, `rag-up` step first (2.6).
+
+---
+
+## 7. Open questions
+
+| # | Question | How we settle it |
+|---|---|---|
+| 1 | Real success criteria, including latency and cost targets | You replace the placeholders in §1 — this gates §6.5 |
+| 2 | Is three Pro calls per turn fast enough for a chat UX? | Measure p95 in §6.5. If not, 2.10 reopens |
+| 3 | What does the RAG corpus actually cost per month? | Pricing calculator, before §6.3 |
+| 4 | Does idle Agent Runtime bill? | Deploy, wait 24h, read the billing console |
+| 5 | Is the `customtools` model variant better? | A/B once evals exist |
+| 6 | Are order/invoice lookups mocked forever, or real? | Your call — changes scope significantly |
+| 7 | Who updates the corpus when policy changes? | Unowned drift is risk #2 in §1 |
+| 8 | Do we ever need cross-session personalisation? | The trigger that reopens 2.8 |
+
+---
+
+## 8. Things we deliberately did not do
+
+- **No `transfer_to_agent` handoffs** — the root would stop owning the customer's voice (2.2)
+- **No `AgentTool` wrapping** — ADK 2.6 discourages it in favour of single-turn sub-agents (2.2)
+- **No second corpus for billing** — a second standing Spanner bill for scoping we can do in
+  code (2.4)
+- **No Flash tier / model router** — an unmeasured saving bought with a real failure mode (2.10)
+- **No Memory Bank** — it's not a conversation archive, and it can't run locally (2.8)
+- **No Cloud SQL for sessions** — a standing instance cost to store demo conversations (2.7)
+- **No billing write actions** — money moving on a model's say-so, with no human checkpoint (2.11)
+- **No native grounding** — would have hidden retrieval from evaluation (2.3)
+- **No self-managed vector database** — absurd for a handful of PDFs (2.5)
+- **No CI/CD yet** — premature while the design is moving (2.14)
+- **No real order-system integration yet** — mocks are enough to evaluate behaviour (2.12)
+- **No pytest on model output** — LLM output is non-deterministic; behaviour belongs in evals.
+  The scaffold's integration tests cover wiring, tool schemas, and error paths — not judgement.
