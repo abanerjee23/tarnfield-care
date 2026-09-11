@@ -218,3 +218,6 @@ credentials*.json
 
 # macOS
 .DS_Store
+
+# RAG cost-check throttle marker (scripts/rag_cost_check.sh)
+.claude/.rag-tier-last-check

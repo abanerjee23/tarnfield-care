@@ -279,6 +279,15 @@ favour deleting it.
 - **Evaluation requires the corpus to be up.** The loop is `rag-up` → eval → `rag-down`.
   Forgetting this produces eval failures that look like model problems but aren't.
 
+**Two things now remember for you**, because a weekly ritual is one you will eventually do
+wrong from memory:
+
+- A `Stop` hook (`.claude/settings.json` → `scripts/rag_cost_check.sh`) warns when the tier
+  is still provisioned. Throttled to once per 30 minutes and run async, so it neither slows
+  turns nor nags. `./scripts/rag_cost_check.sh --force` checks on demand.
+- A `/rag-cost` skill carries the procedure, including the part that is easy to get wrong:
+  `rag-unprovision` is destructive project-wide and must be confirmed by a person.
+
 *Why put it in a Makefile rather than clicking in the console:* a ritual you run every week is
 a ritual you will eventually do wrong from memory. Especially the teardown half — the one that
 costs money when skipped. `rag-status` exists for exactly this reason: it prints the billing

@@ -25,7 +25,8 @@ make rag-status        # what exists, and which tier is billing
 make rag-unprovision   # actually halts the bill (destructive, project-wide)
 ```
 
-Run `make rag-status` before you walk away. See BUILD_PLAN §2.5 and §2.6.
+Run `make rag-status` before you walk away. A `Stop` hook warns automatically when the tier
+is still provisioned, and `/rag-cost` covers the full procedure. See BUILD_PLAN §2.5 and §2.6.
 
 ---
 
