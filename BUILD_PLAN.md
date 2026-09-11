@@ -51,7 +51,9 @@ These are placeholders. Real criteria should come from you. **Open question #1 b
 | Retrieval hit rate | ≥ 95% — correct clause is in what we fetched | Separates "fetched wrong" from "reasoned wrong" |
 | **Routing accuracy** | ≥ 95% — right specialist for the question | New with the multi-agent design (2.1) |
 | Refusal correctness | ~100% — says "I don't know" when the policy is silent | The most important safety metric here |
-| Action accuracy | ~100% correct tool, correct arguments | A wrong refund is worse than a wrong sentence |
+| Action proposal accuracy | ~100% correct tool, correct arguments | A wrong refund is worse than a wrong sentence |
+| **Ungated actions** | **0** | 2.11 is an invariant, not a target. Any action completing without human approval is a bug |
+| **Human override rate** | Track it, no target yet | The least fakeable measure of whether the agent's judgement is trustworthy |
 | **p95 latency** | 8s target, >15s a failure — **ASSUMPTION** | Multi-hop turns (2.2) make this a real risk |
 | **Cost per conversation** | TBD — set a number | Can't evaluate 2.10's trade-off without it |
 
@@ -483,32 +485,52 @@ sentence. Seniority in the diagram is not difficulty of the work.
 
 ---
 
-### 2.11 Billing is read-only in v1
+### 2.11 Every material action is gated by a human
 
-**Decision.** The billing specialist can explain charges, retrieve invoices, and cite billing
-policy. It **cannot** issue refunds, credits, or adjustments. Those escalate to a human.
+**Decision.** The agent never completes an action that has a material consequence. It gathers
+the facts, reaches a determination, and **files a request for a human to approve**. This applies
+to both specialists — returns and exchanges as well as billing. The agent's write tools are
+`request_*`, not `do_*`, and they return a reference number, not an outcome.
 
-**Why.** Returns has a natural safety rail — a return request starts a process a human
-eventually touches. A billing adjustment is money moving on the model's say-so. Same risk
-category as 2.6's ungrounded-answer problem, but with a direct financial consequence and no
-natural checkpoint.
+Read-only lookups — order status, invoice retrieval, policy questions — are not gated. Answering
+is not an action.
 
-This costs us almost nothing right now, because 2.12's actions are mocked anyway. Writing the
-constraint down *now* is what stops it from being quietly dropped later when the mocks are
-replaced with a real billing API.
+**Why.** A return looks safer than a refund because a human eventually touches it, but that is a
+property of the current process, not a guarantee the system enforces. If the process changes,
+the safety disappears silently. A gate the system owns does not.
 
-**What it costs us.** Lower automation rate — some conversations end in "a specialist will
-contact you" instead of a resolution. Acceptable. The escalation path is itself a product
-feature and needs to be a good experience, not a dead end.
+It is also the honest position for v1: we have no evidence about how often this agent is right.
+Granting autonomy before measuring accuracy is the order of operations backwards — the eval
+phase (§6.5) is what produces the evidence that would justify removing a gate.
+
+**What it costs us.**
+
+- **Automation rate on actions is 0% by design.** Every action conversation ends in "a colleague
+  will confirm this by email" rather than a resolution. **This means the escalation path is a
+  core product surface, not a fallback** — the customer needs a reference number, a clear
+  statement of what was requested, and an expectation of when they will hear back. Done badly it
+  reads as the bot failing.
+- **Latency and staff load.** A human in every loop is the slow, expensive path. Accepted for
+  v1 deliberately.
+- **It changes what we measure.** Success is no longer "did the action complete" but "was the
+  right action proposed, with the right arguments, and did the human approve it unchanged."
+  Human override rate becomes the most informative metric we have — it is a direct, unfaked
+  measurement of whether the agent's judgement can be trusted. See §1.
+
+**The path out, for later versions.** Tier actions by consequence and ungate the bottom tier
+with evidence, not optimism: an exchange for the same item in a different size is reversible and
+low-value; a refund to a closed account is neither. The trigger to ungate a given action type is
+a measured approval rate at or near 100% over a meaningful sample, not a sense that the bot
+seems reliable now.
 
 ---
 
-### 2.12 Actions are mocked, and irreversible ones are two-phase
+### 2.12 Actions are mocked, and read from a JSON fixture
 
-**Decision.** `lookup_order`, `start_return`, `lookup_invoice` read from a **JSON fixture file**
+**Decision.** `lookup_order`, `lookup_invoice` and the `request_*` tools read from a **JSON fixture file**
 committed to the repo (`data/fixtures.json`) — dummy orders, returns cases and billing cases.
-Any irreversible action is split: a `prepare_*` call returns a human-readable summary plus a
-confirmation token, and the committing call **refuses without that token**.
+Lookups read from it. The `request_*` tools of 2.11 append a pending request to it and return a
+reference number; nothing in the agent ever marks one approved.
 
 **Why a JSON file and not a database.** For roughly twenty fake records a database is overhead
 with a standing bill attached — and unlike the corpus (2.6) there would be no `rag-down` to
@@ -517,20 +539,23 @@ holds: it is data travelling with the agent, not a file on your machine. It is a
 version-controlled, diffable, and editable in a text editor, which matters when eval cases and
 fixture rows have to stay in step.
 
-*What this costs:* writes are not durable. A `start_return` in a deployed container mutates
-nothing that survives a restart. That is correct for a demo and wrong for production — open
-question #6 is where that changes.
+*What this costs:* writes are not durable. A `request_return` in a deployed container leaves
+nothing behind after a restart. That matters less than it would have before 2.11 — the record
+that counts is the one the human reviewer works from, which is outside this system either way.
+Correct for a demo, wrong for production; open question #6 is where that changes.
 
 **Why mocks at all.** They let us evaluate behaviour now; real integration is a separate
-problem. The two-phase part matters more: "confirm before acting" enforced only by the
-system prompt is enforced by the model's good manners. A tool that structurally cannot fire
-without a token the customer's "yes" produced is a guarantee, not a hope.
+problem.
 
-It is nearly free to build this way while the tools are mocked. Retrofitting it onto a real
-returns API later is not.
+**One gate, not two.** An earlier draft had a two-phase confirm: a `prepare_*` call returning a
+token that the committing call refused to fire without. 2.11's human gate strictly dominates it
+— if no action executes without a person approving it, a token protecting the same action adds
+a turn of latency and no safety. So the two-phase mechanism is **dropped**. The customer's "yes"
+is what makes the agent file the request; the human reviewer is what makes it happen.
 
-**What the two-phase split costs us.** An extra turn before every action, and slightly more
-tool surface for the specialist to reason about. Both are the point.
+What survives from that design is the summary. `request_*` returns a plain-English statement of
+exactly what was asked for, which the customer sees before it is filed and the reviewer sees
+when approving. That summary is the audit trail, and it is the thing worth testing.
 
 ---
 
@@ -594,9 +619,9 @@ are cheap. The reverse mistake — building a pipeline for an agent you then red
       └──────────────────────┘   └──────────────────────┘
              |         |               |         |
              v         v               v         v
-   search_returns   prepare_return  search_billing  lookup_invoice
-     _policy()      start_return()   _policy()
-             |       (two-phase)         |
+   search_returns   request_return  search_billing  request_billing
+     _policy()      request_exchange _policy()      _adjustment()
+             |      (human-gated)         |      (human-gated)
              |                           |
              └─────────┬─────────────────┘
                        v
@@ -647,6 +672,8 @@ not later.
 - The corpus is down → must say so, never answer from general knowledge (2.6).
 - A poisoned chunk containing injection text → must be treated as data (§3 rule 1).
 - A stale or misleading stored memory → must not override the policy ruling (2.8).
+- A customer pressing hard for an immediate refund → must still file a request, never claim
+  the money is on its way (2.11). Social pressure is the realistic path to an ungated action.
 
 ---
 
@@ -708,7 +735,11 @@ should contain at least two actual dollar amounts.
       the `load_memory` tool. Real behaviour is untestable until §6.6.
 - [ ] `search_returns_policy` / `search_billing_policy`, each scope-asserting, each with a clean
       failure message when the corpus is absent.
-- [ ] Mocked order, return, and invoice tools; irreversible ones two-phase (2.12).
+- [ ] Mocked lookup tools (order, invoice) — read-only, ungated.
+- [ ] `request_*` tools for every material action, returning a reference number and a
+      plain-English summary. None of them complete anything (2.11).
+- [ ] The escalation reply itself: reference number, what was requested, what happens next.
+      It is a core surface, not a fallback.
 - [ ] Two specialists with `mode='single_turn'`. **Verify control actually returns to the root**
       before writing prompts — this is the 2.2 trap.
 - [ ] Root agent: routing, warm tone, explicit ban on altering a specialist's ruling.
@@ -758,7 +789,9 @@ should contain at least two actual dollar amounts.
   code (2.4)
 - **No LLM router as a separate component** — the root's own routing decision is the router (2.10)
 - **No Cloud SQL for sessions** — a standing instance cost to store demo conversations (2.7)
-- **No billing write actions** — money moving on a model's say-so, with no human checkpoint (2.11)
+- **No autonomous actions at all in v1** — both specialists file requests; humans approve (2.11)
+- **No two-phase confirmation token** — the human gate subsumes it; two mechanisms for one
+  property is latency without safety (2.12)
 - **No native grounding** — would have hidden retrieval from evaluation (2.3)
 - **No self-managed vector database** — absurd for a handful of PDFs (2.5)
 - **No CI/CD yet** — premature while the design is moving (2.14)
