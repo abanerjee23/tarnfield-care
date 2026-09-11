@@ -21,7 +21,8 @@ from google.adk.apps import App
 from google.adk.models import Gemini
 from google.genai import types
 
-from app.config import MODEL, MODEL_RETRY_ATTEMPTS
+# Specialists arrive in BUILD_PLAN 6.4; this placeholder stands in as the root.
+from app.config import MODEL_RETRY_ATTEMPTS, ROOT_MODEL
 
 
 def get_weather(query: str) -> str:
@@ -60,7 +61,7 @@ def get_current_time(query: str) -> str:
 root_agent = Agent(
     name="customer_chatbot_rag",
     model=Gemini(
-        model=MODEL,
+        model=ROOT_MODEL,
         retry_options=types.HttpRetryOptions(attempts=MODEL_RETRY_ATTEMPTS),
     ),
     instruction="You are a helpful AI assistant designed to provide accurate and useful information.",

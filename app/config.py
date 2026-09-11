@@ -10,13 +10,22 @@ from __future__ import annotations
 import os
 
 # --- Models (BUILD_PLAN 2.10) -------------------------------------------------
-# One model for every agent. The two-model Flash/Pro split was removed: it traded
-# an unmeasured cost saving for a real misrouting failure mode.
+# Split by job, not by agent seniority. The expensive model does the expensive
+# thinking: multi-clause policy judgement about someone's money. The root routes
+# and writes the reply, which is formatting work.
 #
-# This constant is the ONLY place a model id appears. gemini-3.1-pro-preview is a
-# preview model with ~2 weeks of deprecation notice, so a forced migration has to
-# be a one-line change.
-MODEL = "gemini-3.1-pro-preview"
+# These two constants are the ONLY place a model id appears.
+# gemini-3.1-pro-preview is a preview model with ~2 weeks of deprecation notice,
+# so a forced migration has to be a one-line change.
+
+# Returns & Billing specialists: refund eligibility, multi-clause reasoning.
+SPECIALIST_MODEL = "gemini-3.1-pro-preview"
+
+# Root orchestrator: pick a specialist, deliver the answer warmly. It must never
+# alter a specialist's ruling -- that constraint is instruction-following under
+# pressure, which is exactly where the smaller model is likeliest to slip, so it
+# is covered by a must-have eval case (BUILD_PLAN 4).
+ROOT_MODEL = "gemini-3.8-flash"
 
 # Retries matter more than usual here: a three-agent turn means ~3x the calls
 # against preview-tier rate limits (BUILD_PLAN 2.2).

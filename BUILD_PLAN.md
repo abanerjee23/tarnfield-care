@@ -52,7 +52,7 @@ These are placeholders. Real criteria should come from you. **Open question #1 b
 | **Routing accuracy** | ≥ 95% — right specialist for the question | New with the multi-agent design (2.1) |
 | Refusal correctness | ~100% — says "I don't know" when the policy is silent | The most important safety metric here |
 | Action accuracy | ~100% correct tool, correct arguments | A wrong refund is worse than a wrong sentence |
-| **p95 latency** | TBD — set a number | Three Pro calls per turn (2.2) makes this a real risk |
+| **p95 latency** | 8s target, >15s a failure — **ASSUMPTION** | Multi-hop turns (2.2) make this a real risk |
 | **Cost per conversation** | TBD — set a number | Can't evaluate 2.10's trade-off without it |
 
 ### Product risks
@@ -386,7 +386,7 @@ a visibly worse experience, and for a service bot that gap is obvious to anyone 
   restart. **The local and deployed bots therefore behave differently**, and that difference
   will show up as "works on my machine" bugs in the memory-dependent cases. Evals that depend
   on memory are not trustworthy locally.
-- **An extra LLM call for consolidation**, on top of the three Pro calls a turn already costs
+- **An extra LLM call for consolidation**, on top of the multi-hop turn already costs
   (2.2). Measure it with the rest in §6.5.
 - **It is a customer-data store**, which collides with 2.9 — model calls run through AI Studio,
   which has no data residency commitment. Fine for fake policy documents and fake customers.
@@ -438,40 +438,48 @@ this decision.
 
 ---
 
-### 2.10 One model everywhere: `gemini-3.1-pro-preview`
+### 2.10 Two models, split by job
 
-**Decision.** All three agents use `gemini-3.1-pro-preview`. The previous two-model design
-(Flash for routing, Pro for reasoning) is **removed**. The ID lives in one constant,
-`app/config.py:MODEL`.
+**Decision.**
 
-**Why.** The earlier plan had a Flash router deciding which questions deserved Pro. That bought
-a cost saving we had never measured, in exchange for a new failure mode pointed squarely at the
-thing we care most about — a hard refund question misrouted to the cheap model. Its own
-mitigation was "when unsure, use Pro," which erodes most of the saving anyway.
+| Agent | Model | Job |
+|---|---|---|
+| `returns_exchanges`, `billing` | `gemini-3.1-pro-preview` | Multi-clause policy judgement about someone's money |
+| `customer_service` (root) | `gemini-3.8-flash` | Pick a specialist, write the reply warmly |
 
-Measure first. Get the system correct, read the real cost per conversation, *then* decide
-whether a cheaper model for the root's routing-and-tone job is worth its risk. That's a
-one-line change when the data justifies it — which is the whole reason the ID is a single
-constant.
+Both IDs live in `app/config.py` as `SPECIALIST_MODEL` and `ROOT_MODEL`.
+
+**Why.** The expensive model does the expensive thinking. *"Can I return worn boots after 40
+days?"* requires holding several clauses at once and reaching a judgement with money attached —
+that is the hard, high-stakes work. Choosing which specialist to call, and turning their ruling
+into a warm sentence, is formatting. Paying Pro prices for formatting is waste.
+
+Note this is the **inverse** of the intuitive allocation. "Root is in charge, so root gets the
+good model" puts the cheap model on refund eligibility and the expensive one on picking a
+sentence. Seniority in the diagram is not difficulty of the work.
 
 **What it costs us.**
 
-- **This is the expensive configuration, and 2.2 multiplies it by three.** A single customer
-  turn is at least three Pro calls. We are knowingly paying for that in exchange for a system
-  whose failures we can attribute, and we have committed to measuring it rather than assuming.
-- **Latency is the bigger risk than cost.** Three sequential calls to a reasoning model is
-  plausibly slow enough to hurt a chat UX. **The root must stream**, and it should acknowledge
-  the customer before delegating, so the wait is visible rather than dead air. Set a p95 target
-  in §1 and hold the design to it.
-- **`gemini-3.1-pro-preview` is a preview model.** Tighter rate limits — now hit ~3x faster per
-  conversation than the old design — and Google commits to only ~2 weeks notice before
-  deprecation. This is not hypothetical: Gemini 3 Pro Preview was shut down on 2026-03-09 and
-  everyone was forced to migrate. One constant, one-line migration. Retry-with-backoff on 429
-  is not optional at 3 calls/turn.
+- **Two failure modes, on the two jobs Flash now owns.**
+  1. *Misrouting* — a returns question sent to Billing. Mitigated by short, specific agent
+     descriptions and graded as its own eval dimension (§4).
+  2. *Ruling drift* — the root softening a specialist's "no" into something that reads like a
+     "maybe", or inventing an answer the specialist declined to give. This is
+     instruction-following under pressure, which is exactly where the smaller model is likeliest
+     to slip. **The "a hard no must survive the root's rewrite" case in §4 is therefore a
+     must-have, not a nice-to-have.** If Flash cannot hold that line, the root moves to Pro and
+     we accept the cost.
+- **Latency is still the risk, not cost.** A turn is root → specialist (+ retrieval) → root.
+  Flash at both ends of that chain helps, but the middle hop is a reasoning model and dominates.
+  **The root must stream and acknowledge before delegating** so the customer sees *"Let me check
+  that for you"* rather than dead air.
+- **Two models means two deprecation clocks.** `gemini-3.1-pro-preview` is a preview model with
+  ~2 weeks of notice; Gemini 3 Pro Preview was shut down on 2026-03-09 and everyone migrated
+  under duress. Two constants, one-line change each. Retry-with-backoff is not optional.
 - **OPEN — worth one experiment:** there is a `gemini-3.1-pro-preview-customtools` variant
   documented as better at prioritising custom tools over built-in ones. Our retrieval *is* a
-  custom tool, and specialists now live behind tool-shaped interfaces too. Worth an A/B once
-  evals exist. Not a default — an untested claim.
+  custom tool. Worth an A/B on the specialists once evals exist. Not a default — an untested
+  claim.
 
 ---
 
@@ -731,7 +739,7 @@ should contain at least two actual dollar amounts.
 | # | Question | How we settle it |
 |---|---|---|
 | 1 | Real success criteria, including latency and cost targets | You replace the placeholders in §1 — this gates §6.5 |
-| 2 | Is three Pro calls per turn fast enough for a chat UX? | Measure p95 in §6.5. If not, 2.10 reopens |
+| 2 | Is a multi-hop turn fast enough for a chat UX? | Measure p95 in §6.5. If not, 2.10 reopens |
 | 3 | What does the RAG corpus actually cost per month? | Pricing calculator, before §6.3 |
 | 4 | Does idle Agent Runtime bill? | Deploy, wait 24h, read the billing console |
 | 5 | Is the `customtools` model variant better? | A/B once evals exist |
@@ -747,7 +755,7 @@ should contain at least two actual dollar amounts.
 - **No `AgentTool` wrapping** — ADK 2.6 discourages it in favour of single-turn sub-agents (2.2)
 - **No second corpus for billing** — a second standing Spanner bill for scoping we can do in
   code (2.4)
-- **No Flash tier / model router** — an unmeasured saving bought with a real failure mode (2.10)
+- **No LLM router as a separate component** — the root's own routing decision is the router (2.10)
 - **No Cloud SQL for sessions** — a standing instance cost to store demo conversations (2.7)
 - **No billing write actions** — money moving on a model's say-so, with no human checkpoint (2.11)
 - **No native grounding** — would have hidden retrieval from evaluation (2.3)
