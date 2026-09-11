@@ -215,3 +215,6 @@ credentials*.json
 # Local session history (BUILD_PLAN 2.7) - holds real conversation text
 .sessions/
 *.db
+
+# macOS
+.DS_Store
