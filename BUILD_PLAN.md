@@ -283,6 +283,10 @@ lot while debugging a three-agent system.
 Both are first-class in the installed ADK (`google/adk/sessions/sqlite_session_service.py`,
 `vertex_ai_session_service.py`).
 
+**2.8 settles this cheaply.** Memory Bank requires a deployed Agent Engine anyway, so managed
+sessions arrive with it — same service, no standing instance, nothing extra to configure. No
+Cloud SQL is needed for conversations.
+
 **What it costs us.**
 
 - **Two code paths, so a bug can exist in one and not the other.** Mitigation: the selection
@@ -493,20 +497,32 @@ feature and needs to be a good experience, not a dead end.
 
 ### 2.12 Actions are mocked, and irreversible ones are two-phase
 
-**Decision.** `lookup_order`, `start_return`, `lookup_invoice` are mocked. Any irreversible
-action is split: a `prepare_*` call returns a human-readable summary plus a confirmation token,
-and the committing call **refuses without that token**.
+**Decision.** `lookup_order`, `start_return`, `lookup_invoice` read from a **JSON fixture file**
+committed to the repo (`data/fixtures.json`) — dummy orders, returns cases and billing cases.
+Any irreversible action is split: a `prepare_*` call returns a human-readable summary plus a
+confirmation token, and the committing call **refuses without that token**.
 
-**Why.** Mocks let us evaluate behaviour now; real integration is a separate problem (open
-question #4). The two-phase part matters more: "confirm before acting" enforced only by the
+**Why a JSON file and not a database.** For roughly twenty fake records a database is overhead
+with a standing bill attached — and unlike the corpus (2.6) there would be no `rag-down` to
+switch it off. The fixture ships inside the deployed container, so "no local state" still
+holds: it is data travelling with the agent, not a file on your machine. It is also
+version-controlled, diffable, and editable in a text editor, which matters when eval cases and
+fixture rows have to stay in step.
+
+*What this costs:* writes are not durable. A `start_return` in a deployed container mutates
+nothing that survives a restart. That is correct for a demo and wrong for production — open
+question #6 is where that changes.
+
+**Why mocks at all.** They let us evaluate behaviour now; real integration is a separate
+problem. The two-phase part matters more: "confirm before acting" enforced only by the
 system prompt is enforced by the model's good manners. A tool that structurally cannot fire
 without a token the customer's "yes" produced is a guarantee, not a hope.
 
 It is nearly free to build this way while the tools are mocked. Retrofitting it onto a real
 returns API later is not.
 
-**What it costs us.** An extra turn before every action, and slightly more tool surface for the
-specialist to reason about. Both are the point.
+**What the two-phase split costs us.** An extra turn before every action, and slightly more
+tool surface for the specialist to reason about. Both are the point.
 
 ---
 
@@ -637,6 +653,7 @@ not later.
 | Agent Runtime | Per use; not idle between turns | Possible small floor — **measure it** |
 | Secret Manager | Negligible | |
 | SQLite sessions (local) | Free | |
+| Dummy order/returns/billing data | Free | JSON fixture in the repo (2.12) |
 
 **Every figure above is a shape, not a number.** Before building, fill in the corpus monthly
 cost and measure one real conversation's token usage. A document this concerned with cost
