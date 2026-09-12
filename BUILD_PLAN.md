@@ -898,6 +898,18 @@ not later.
 
 - Questions the policy does **not** answer → must refuse. The easiest failure to miss, because
   the wrong answers look fluent.
+
+  **A lesson from the first smoke run, because it cost a case.** "Do you accept Klarna?" was
+  written as a refusal case on the grounds that no document mentions buy-now-pay-later. The
+  agent answered *"we don't accept Klarna"* — and it was right to. The billing policy lists
+  accepted payment methods exhaustively, so a list of what IS accepted implicitly answers what
+  is not. The eval case was broken, not the agent.
+
+  **A real refusal case must be unanswerable, not merely unmentioned.** The replacement —
+  business invoicing on a purchase order with 30-day terms — passes because no clause bears on
+  it either way. The agent said the policy does not cover it, escalated, and returned reference
+  REQ-8B6053 with the decision still unmade. Write refusal cases by asking "could a careful
+  reader infer this from what IS written?", not "does this word appear?".
 - A cross-domain question ("refund me for order #123") → tests the 2.1 boundary.
 - A hard "no" from a specialist → must still read as "no" after the root rewrites it (2.2).
 - The corpus is down → must say so, never answer from general knowledge (2.6).
@@ -960,9 +972,11 @@ should contain at least two actual dollar amounts.
 - [x] `tarnfield_returns_policy.pdf` and `tarnfield_product_catalogue.pdf` supplied.
 - [x] `tarnfield_billing_policy.pdf` drafted. Text lives in `scripts/make_billing_policy.py`
       so wording changes are diffable; re-run it to regenerate.
-- [x] Plausible questions left **unanswered** across all three documents, for §4's refusal
-      cases: buy-now-pay-later, business invoicing and purchase orders, price-drop refunds,
-      student discounts, paying in instalments. Asserted absent by the generator.
+- [x] Plausible questions left **unanswered** across all three documents: business invoicing and
+      purchase orders, price-drop refunds, student discounts, paying in instalments. Asserted
+      absent by the generator.
+- [x] Found in testing that "buy-now-pay-later", though absent, is *implicitly* answered by the
+      exhaustive payment-methods list — so it is not a valid refusal case. See §4.
 - [x] Cross-domain seam written in deliberately: billing §5 covers refund *mechanics* and
       defers *eligibility* to the returns policy, so the 2.1 boundary is exercised by the
       documents themselves rather than assumed.

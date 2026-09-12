@@ -22,10 +22,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import agentplatform  # noqa: E402
-from agentplatform._genai import types as ap  # noqa: E402
+import agentplatform
+from agentplatform._genai import types as ap
 
-from app import config  # noqa: E402  (also installs the stale-ADC guard)
+from app import config
 
 DOCS_DIR = Path(__file__).resolve().parent.parent / "docs"
 
@@ -67,7 +67,7 @@ def _mode(client) -> str:
     """
     try:
         cfg = client.rag.get_config()
-    except Exception as exc:  # noqa: BLE001 - surfaced, not swallowed
+    except Exception as exc:
         return f"unknown ({type(exc).__name__})"
     db = getattr(cfg, "rag_managed_db_config", None)
     if db is None:

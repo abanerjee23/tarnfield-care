@@ -101,7 +101,7 @@ def _resolve_corpus() -> str | None:
             if corpus.display_name == config.RAG_CORPUS_DISPLAY_NAME:
                 _corpus_name = corpus.name
                 return _corpus_name
-    except Exception:  # noqa: BLE001 - reported to the model as a clean string
+    except Exception:
         return None
     return None
 
@@ -131,7 +131,7 @@ def search(query: str, allowed_documents: list[str], top_k: int = 5) -> str:
             ),
             query=ap.RagQuery(text=query, similarity_top_k=top_k),
         )
-    except Exception:  # noqa: BLE001
+    except Exception:
         return CORPUS_UNAVAILABLE
 
     kept, dropped, far = [], 0, 0

@@ -14,19 +14,29 @@ Generated with `agents-cli` version `1.5.0`.
 
 ---
 
-## ⚠️ The corpus costs money while it exists
+## ⚠️ Know which RAG Engine mode you are in
 
-Vertex AI RAG Engine provisions a managed database that **bills continuously**, and the billing
-tier is a **project + location setting — not a property of your corpus**. Deleting the corpus
-does *not* stop the meter.
+RAG Engine's backing store is a **project + location setting, not a property of your corpus**,
+so deleting a corpus never changes it:
+
+| Mode | Backing store | Cost |
+|---|---|---|
+| `basic` / `scaled` | Spanner | **Provisioned instance, bills continuously** |
+| `serverless` | Vector Search | Per use, no standing instance |
+| `unprovisioned` | none | Nothing, and all RAG data is deleted |
+
+**This project runs `serverless`.** Spanner mode is allowlist-only for new projects in
+`us-central1`, `us-east1` and `us-east4`, and serverless has no standing cost — so it is both
+the available option and the cheaper one. It needs `vectorsearch.googleapis.com` enabled.
 
 ```bash
-make rag-status        # what exists, and which tier is billing
-make rag-unprovision   # actually halts the bill (destructive, project-wide)
+make rag-status       # corpus contents and the current mode
+make rag-serverless   # switch to serverless (the actual cost control)
+make rag-unprovision  # delete all RAG data, project-wide. Absolute and destructive
 ```
 
-Run `make rag-status` before you walk away. A `Stop` hook warns automatically when the tier
-is still provisioned, and `/rag-cost` covers the full procedure. See BUILD_PLAN §2.5 and §2.6.
+A `Stop` hook warns if the mode ever goes back to a provisioned one, and `/rag-cost` covers the
+procedure. See BUILD_PLAN §2.5 and §2.6.
 
 ---
 
@@ -38,7 +48,11 @@ customer-chatbot-rag/
 ├── CLAUDE.md                  # AI-assisted development guide
 ├── Makefile                   # Corpus lifecycle + tests
 ├── app/
-│   ├── agent.py               # Agent definitions
+│   ├── agent.py               # Entry point
+│   ├── agents.py              # Root + two specialists (single_turn)
+│   ├── prompts.py             # Instructions; most safety rules live here
+│   ├── tools.py               # Search, lookups, and request_* (human-gated)
+│   ├── retrieval.py           # Corpus search with per-specialist scoping
 │   ├── config.py              # Models, regions, corpus, session/memory backends
 │   ├── fast_api_app.py        # FastAPI backend server
 │   └── app_utils/             # App utilities and helpers
@@ -46,9 +60,11 @@ customer-chatbot-rag/
 │   ├── tarnfield_returns_policy.pdf
 │   ├── tarnfield_product_catalogue.pdf     # per-product return overrides
 │   └── tarnfield_billing_policy.pdf
-├── data/fixtures.json         # Dummy orders + cases (built in BUILD_PLAN 6.4)
+├── data/fixtures.json         # Dummy orders, invoices and billing cases
 ├── scripts/
-│   ├── rag_corpus.py          # Corpus lifecycle (up/status/down/unprovision)
+│   ├── rag_corpus.py          # Corpus lifecycle
+│   ├── rag_cost_check.sh      # Stop-hook billing warning
+│   ├── smoke.py               # End-to-end conversation runner
 │   └── make_billing_policy.py # Source text for the billing policy PDF
 ├── tests/                     # Unit, integration, and eval
 └── pyproject.toml
@@ -64,10 +80,11 @@ customer-chatbot-rag/
 ## Quick Start
 
 ```bash
-agents-cli install          # install dependencies
-make rag-up                 # create the corpus, ingest docs/*.pdf
-agents-cli playground       # interactive local testing
-make rag-down               # delete the corpus when finished
+agents-cli install      # install dependencies
+make rag-serverless     # one-time: put the project in serverless mode
+make rag-up             # create the corpus, ingest docs/*.pdf
+make smoke              # run real conversations end to end
+make playground         # interactive local testing
 ```
 
 ## Configuration
@@ -82,8 +99,10 @@ always need ADC plus `GOOGLE_CLOUD_PROJECT`. Do not comment that variable out.
 |---|---|
 | `make rag-up` | Create the corpus and ingest `docs/*.pdf` |
 | `make rag-status` | Corpus contents **and the billing tier** |
-| `make rag-down` | Delete the corpus (does **not** stop the bill) |
+| `make rag-serverless` | Switch to serverless — no standing instance |
+| `make rag-down` | Delete the corpus |
 | `make rag-unprovision` | Halt RAG Engine billing — destructive, project-wide |
+| `make smoke` | Real conversations through the agent (spends credits) |
 | `make test` | Unit and integration tests |
 | `agents-cli playground` | Launch local development environment |
 | `agents-cli eval run` | Run the agent over the eval dataset and grade it |

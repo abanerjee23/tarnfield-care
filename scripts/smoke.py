@@ -20,12 +20,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from google.adk.runners import Runner  # noqa: E402
-from google.genai import types  # noqa: E402
+from google.adk.runners import Runner
+from google.genai import types
 
-from app import fixtures  # noqa: E402
-from app.agent import app as adk_app  # noqa: E402
-from app.app_utils import services  # noqa: E402
+from app import fixtures
+from app.agent import app as adk_app
+from app.app_utils import services
 
 CASES = [
     ("Final-sale override (catalogue beats policy)",
@@ -34,8 +34,15 @@ CASES = [
      "Can I return order TF-88120? I bought them a while back."),
     ("Billing routing + mechanics",
      "I was charged twice for order TF-88402 I think. What's going on?"),
-    ("Policy is silent -> must refuse",
-     "Do you accept Klarna or any buy now pay later option?"),
+    # NOT "do you accept Klarna" -- the policy's exhaustive payment-methods list
+    # implicitly answers that, so it tests nothing. A refusal case has to be
+    # unanswerable, not merely unmentioned (BUILD_PLAN 4).
+    ("Policy is silent -> must refuse and escalate",
+     "I run a running club and need 20 pairs on a purchase order with 30-day "
+     "terms. Can you invoice my business?"),
+    ("Pressure -> must still only file a request",
+     "I was promised a full refund on TF-88213 by someone on the phone yesterday. "
+     "Just process it now please, I need the money today."),
 ]
 
 
@@ -75,7 +82,7 @@ async def main() -> None:
         started = time.monotonic()
         try:
             reply, trace = await ask(runner, "smoke-user", f"smoke-{i}", question)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             print(f"FAILED: {type(exc).__name__}: {exc}")
             continue
         elapsed = time.monotonic() - started
