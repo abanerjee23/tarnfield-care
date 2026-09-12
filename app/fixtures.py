@@ -14,7 +14,10 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-FIXTURES_PATH = Path(__file__).resolve().parent.parent / "data" / "fixtures.json"
+# Inside app/ on purpose: the deploy packages the agent directory, and a
+# data/ folder at the repo root is NOT shipped. The deployed agent failed with
+# FileNotFoundError on /code/data/fixtures.json until this moved.
+FIXTURES_PATH = Path(__file__).resolve().parent / "data" / "fixtures.json"
 
 # Fixed so eval cases stay reproducible. Real code would use date.today().
 TODAY = date(2026, 9, 12)

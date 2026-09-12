@@ -63,7 +63,28 @@ MODEL_RETRY_ATTEMPTS = 3
 # Split billing: model calls go to AI Studio via GEMINI_API_KEY, while RAG Engine
 # and Agent Engine are separate clients that still need ADC + this project id.
 # Both credential paths must be live at the same time.
-PROJECT_ID = os.getenv("GOOGLE_CLOUD_PROJECT", "")
+def _resolve_project() -> str:
+    """Project id from the environment, falling back to the credentials.
+
+    GOOGLE_CLOUD_PROJECT is set by our .env locally, but Agent Runtime does NOT
+    set it -- the deployed agent gets its project from the metadata server via
+    ADC instead. Reading only the env var meant retrieval silently returned
+    "policy lookup unavailable" in production while working perfectly locally.
+    That is the local/deployed divergence this project keeps running into, so the
+    fix resolves the project the same way the Google client libraries do.
+    """
+    if env := os.getenv("GOOGLE_CLOUD_PROJECT"):
+        return env
+    try:
+        import google.auth
+
+        _, project = google.auth.default()
+        return project or ""
+    except Exception:  # noqa: BLE001 - absence is handled by callers
+        return ""
+
+
+PROJECT_ID = _resolve_project()
 
 # Model-serving location. "global" is valid here and is the fix for model 404s.
 MODEL_LOCATION = os.getenv("GOOGLE_CLOUD_LOCATION", "global")
@@ -111,14 +132,11 @@ AGENT_ENGINE_ID = os.getenv("GOOGLE_CLOUD_AGENT_ENGINE_ID", "")
 
 
 # --- Memory (BUILD_PLAN 2.8) --------------------------------------------------
-# Separate service from sessions, and a separate job: sessions hold the literal
-# event log, memory holds distilled facts about a customer across conversations.
-#
-# Real memory only exists once deployed -- VertexAiMemoryBankService needs an
-# AGENT_ENGINE_ID. The local backend is a non-persistent stand-in that exercises
-# the code path but loses everything on restart, so memory-dependent evals are
-# not trustworthy locally.
-MEMORY_BACKEND = os.getenv("MEMORY_BACKEND", "in_memory")
+# There is deliberately no MEMORY_BACKEND setting. Memory switches on the presence
+# of GOOGLE_CLOUD_AGENT_ENGINE_ID, which Agent Runtime injects at deploy time:
+# Memory Bank when deployed, a non-persistent stand-in locally. An env var here
+# would look like a control and change nothing, which is worse than no knob --
+# app/app_utils/services.py is where the actual selection lives.
 
 # Authority order (BUILD_PLAN 2.8): temp: < session state < user: state <
 # Memory Bank < policy corpus. Only the corpus may decide a ruling. Memory

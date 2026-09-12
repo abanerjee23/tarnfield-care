@@ -60,7 +60,7 @@ customer-chatbot-rag/
 │   ├── tarnfield_returns_policy.pdf
 │   ├── tarnfield_product_catalogue.pdf     # per-product return overrides
 │   └── tarnfield_billing_policy.pdf
-├── data/fixtures.json         # Dummy orders, invoices and billing cases
+│   └── data/fixtures.json     # Dummy orders, invoices and billing cases
 ├── scripts/
 │   ├── rag_corpus.py          # Corpus lifecycle
 │   ├── rag_cost_check.sh      # Stop-hook billing warning

@@ -251,3 +251,16 @@ def test_root_reads_contact_state_back():
     assert "{user:contact_method?}" in root.instruction
     assert "{user:contact_detail?}" in root.instruction
     assert "remember_contact_details" in {_tool_name(t) for t in root.tools}
+
+
+def test_project_id_does_not_depend_on_an_env_var_alone(monkeypatch):
+    """Agent Runtime does not set GOOGLE_CLOUD_PROJECT. Reading only the env var
+    made retrieval report "policy lookup unavailable" in production while working
+    locally -- the exact local/deployed divergence 2.7 warns about."""
+    import importlib
+
+    from app import config as cfg
+
+    monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
+    importlib.reload(cfg)
+    assert cfg.PROJECT_ID, "project must resolve from credentials when unset"

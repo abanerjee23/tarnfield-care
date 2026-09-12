@@ -16,6 +16,7 @@ Two properties this module exists to guarantee (BUILD_PLAN 2.4, 2.6):
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass
 
@@ -24,6 +25,8 @@ from agentplatform._genai import types as ap
 from google.genai import types as genai_types
 
 from app import config
+
+logger = logging.getLogger(__name__)
 
 CORPUS_UNAVAILABLE = (
     "POLICY_LOOKUP_UNAVAILABLE: the policy corpus could not be reached, so no "
