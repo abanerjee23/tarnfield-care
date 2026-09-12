@@ -54,9 +54,50 @@ def get_session_service():
             or os.environ.get("GOOGLE_CLOUD_LOCATION"),
             agent_engine_id=agent_engine_id,
         )
+    # Local: SQLite rather than in-memory, so a conversation survives a restart
+    # and is inspectable with any SQL client while debugging three agents
+    # (BUILD_PLAN 2.7). SQLite is never used deployed -- Agent Runtime
+    # filesystems are ephemeral, so sessions would vanish non-deterministically.
+    if os.environ.get("SESSION_BACKEND", "sqlite") == "sqlite":
+        from google.adk.sessions.sqlite_session_service import SqliteSessionService
+
+        db_path = os.environ.get("SESSION_DB_PATH", "./.sessions/sessions.db")
+        os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
+        return SqliteSessionService(db_path=db_path)
+
     from google.adk.sessions.in_memory_session_service import InMemorySessionService
 
     return InMemorySessionService()
+
+
+@functools.cache
+def get_memory_service():
+    """Process-wide memory service (BUILD_PLAN 2.8).
+
+    Separate service from sessions, and a separate job: sessions hold the literal
+    event log of one conversation, memory holds distilled facts about a customer
+    across conversations.
+
+    Memory Bank is bound to a DEPLOYED Agent Engine, so locally this is a
+    non-persistent stand-in that exercises the code path but forgets on restart.
+    Memory-dependent behaviour is therefore not trustworthy until deployed --
+    that divergence is a known cost, not a surprise.
+    """
+    if agent_engine_id := os.environ.get("GOOGLE_CLOUD_AGENT_ENGINE_ID"):
+        from google.adk.memory.vertex_ai_memory_bank_service import (
+            VertexAiMemoryBankService,
+        )
+
+        return VertexAiMemoryBankService(
+            project=os.environ.get("GOOGLE_CLOUD_PROJECT"),
+            location=os.environ.get("GOOGLE_CLOUD_AGENT_ENGINE_LOCATION")
+            or os.environ.get("GOOGLE_CLOUD_LOCATION"),
+            agent_engine_id=agent_engine_id,
+        )
+
+    from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
+
+    return InMemoryMemoryService()
 
 
 @functools.cache

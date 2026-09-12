@@ -6,7 +6,7 @@
 # See BUILD_PLAN.md 2.5 and 2.6.
 
 .DEFAULT_GOAL := help
-.PHONY: help rag-up rag-status rag-down rag-unprovision playground test eval lint docs
+.PHONY: help rag-up rag-status rag-down rag-serverless rag-unprovision playground smoke test eval lint docs
 
 help:  ## Show this help
 	@echo "customer-chatbot-rag"
@@ -27,6 +27,9 @@ rag-status:  ## Show corpus contents AND the billing tier
 rag-down:  ## Delete the corpus (does NOT stop the bill -- see rag-unprovision)
 	uv run python scripts/rag_corpus.py down
 
+rag-serverless:  ## Switch to serverless mode -- billed per use, no standing instance
+	uv run python scripts/rag_corpus.py serverless
+
 rag-unprovision:  ## Halt RAG Engine billing. Destructive, project-wide.
 	uv run python scripts/rag_corpus.py unprovision
 
@@ -37,6 +40,9 @@ playground:  ## Interactive local testing
 
 test:  ## Unit and integration tests
 	uv run pytest tests/unit tests/integration
+
+smoke:  ## Run real conversations through the agent (spends credits; corpus must be up)
+	@SMOKE_Q="$(Q)" uv run python scripts/smoke.py
 
 eval:  ## Run the eval dataset (corpus must be up -- BUILD_PLAN 6.5)
 	@uv run python scripts/rag_corpus.py status | grep -q "^Corpus   : projects/" \

@@ -71,7 +71,7 @@ MODEL_LOCATION = os.getenv("GOOGLE_CLOUD_LOCATION", "global")
 # RAG Engine corpus location. Deliberately NOT GOOGLE_CLOUD_LOCATION: "global" is
 # a model-serving value, not a valid corpus region. Keeping these separate also
 # keeps the retrieval round-trip in a region we chose on purpose.
-RAG_CORPUS_LOCATION = os.getenv("RAG_CORPUS_LOCATION", "us-east1")
+RAG_CORPUS_LOCATION = os.getenv("RAG_CORPUS_LOCATION", "us-central1")
 
 # The corpus is ephemeral (BUILD_PLAN 2.6) so its ID changes on every rag-up.
 # Nothing may hardcode an ID; we look the corpus up by this stable display name.
@@ -100,9 +100,14 @@ BILLING_POLICY_DOCS = [
 SESSION_BACKEND = os.getenv("SESSION_BACKEND", "sqlite")
 SESSION_DB_PATH = os.getenv("SESSION_DB_PATH", "./.sessions/sessions.db")
 
-# Set once deployed; required by BOTH VertexAiSessionService and
-# VertexAiMemoryBankService.
-AGENT_ENGINE_ID = os.getenv("AGENT_ENGINE_ID", "")
+# Set by Agent Runtime at deploy time, and required by BOTH
+# VertexAiSessionService and VertexAiMemoryBankService.
+#
+# The name is the runtime's, not ours: app/app_utils/services.py reads
+# GOOGLE_CLOUD_AGENT_ENGINE_ID directly because that is what Agent Runtime
+# injects. Defining a second name here would be a config that looks wired and
+# is not, so this constant mirrors the runtime's and never competes with it.
+AGENT_ENGINE_ID = os.getenv("GOOGLE_CLOUD_AGENT_ENGINE_ID", "")
 
 
 # --- Memory (BUILD_PLAN 2.8) --------------------------------------------------

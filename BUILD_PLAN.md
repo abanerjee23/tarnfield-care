@@ -55,7 +55,7 @@ These are placeholders. Real criteria should come from you. **Open question #1 b
 | Action proposal accuracy | ~100% correct tool, correct arguments | A wrong refund is worse than a wrong sentence |
 | **Ungated actions** | **0** | 2.11 is an invariant, not a target. Any action completing without human approval is a bug |
 | **Human override rate** | Track it, no target yet | The least fakeable measure of whether the agent's judgement is trustworthy (2.15) |
-| **p95 latency** | 8s target, >15s a failure — **ASSUMPTION, likely optimistic** | A turn is 4–6 sequential model calls, 2–4 of them Pro (2.2) |
+| **p95 latency** | 8s target — **measured 20.3s on the first real turn.** Needs re-setting or the design does | A turn is 4–6 sequential model calls, 2–4 of them Pro (2.2) |
 | **Cost per conversation** | TBD — set a number | Can't evaluate 2.10's trade-off without it |
 
 ### Product risks
@@ -144,6 +144,9 @@ session event log automatically.
   | Specialist: search → reason (+ lookup) | **Pro** | **2–4** |
   | Root composes the reply | Flash | 1 |
 
+  **Measured:** a real final-sale question ran root → `lookup_order` → `search_returns_policy`
+  → specialist ruling → root reply in **20.3 seconds**.
+
   So ~2 Flash and 2–4 Pro, before Memory Bank's consolidation call (2.8) and before a
   cross-domain question invokes both specialists. **The expensive model is on the hop that
   multiplies**, which is the opposite of convenient — but it is also the hop doing the work that
@@ -177,6 +180,25 @@ returned chunks appear in the trace as inspectable artifacts. That lets us grade
 - **Did it fetch the right policy clause?** (a retrieval problem — fix chunking or the query)
 - **Did it reason correctly over what it fetched?** (a model problem — fix the prompt)
 
+**Measured caveat, found while building: retrieval cannot produce a refusal.** Vector search
+returns the nearest chunks whether or not anything is relevant, so "results came back" never
+means "the policy covers this". Distances against this corpus (lower = closer) overlap badly:
+
+| Question | Covered? | Best distance |
+|---|---|---|
+| "When will my refund arrive?" | yes | 0.369 |
+| "Is the Solstice Edition returnable?" | yes | 0.411 |
+| "Do you accept Klarna?" | **no** | 0.431 |
+| "Is there a student discount?" | **no** | 0.505 |
+| nonsense control question | no | 0.624 |
+
+A threshold separating 0.411 from 0.431 would be fitted to five queries, not a mechanism. So
+`app/retrieval.py` applies a deliberately **loose** cutoff (0.60) that removes only obvious
+junk, and every result carries an explicit warning that these are the closest passages rather
+than an answer. **Refusal correctness therefore rests on the model**, which is why it is the
+specialists' most emphatic instruction and has its own eval case. Anyone who assumes retrieval
+filters irrelevance will over-trust this system.
+
 These have completely different fixes. Native grounding collapses them into one number that
 tells you something is wrong but never what. Debugging by guesswork is the thing to avoid.
 
@@ -192,9 +214,13 @@ whole value proposition is being trustworthy about policy.
 **Decision.** All policy PDFs go into a **single** RAG Engine corpus. Each specialist gets its
 own retrieval function that scopes results to its own documents.
 
-**Why.** Purely cost. Per 2.5, each corpus provisions its own managed vector store and bills
-continuously. Two corpora is two standing bills for a handful of PDFs. The isolation a second
-corpus would buy is achievable in the tool layer for free.
+**Why.** Originally cost — under Spanner mode a second corpus meant a second standing bill.
+Serverless (2.5) weakens that argument, since cost now scales with use rather than with the
+number of corpora. The decision stands anyway on simpler grounds: one corpus is one thing to
+create, ingest, verify and tear down, and the isolation a second corpus would buy is achievable
+in the tool layer for free. **Note the honest downgrade** — this is now a simplicity decision
+wearing a cost decision's clothes, and if scoping in code ever proves fragile, splitting the
+corpus is cheap to reconsider.
 
 **What it costs us.**
 
@@ -219,22 +245,36 @@ be absurd.
 
 **What it costs us — read this one carefully.**
 
-RAG Engine's managed vector store **provisions a Spanner database instance** behind the scenes.
-Basic tier is 100 processing units, and it **bills continuously** — whether you query it a
-thousand times a day or never.
+RAG Engine's backing store has **modes**, and the mode is a **project + location singleton**
+(`ragEngineConfig`) — not a property of any corpus. That much is structural, and it means
+deleting a corpus never changes the mode.
 
-**The part that is genuinely counter-intuitive, confirmed by running `make rag-status` against
-this project:** the billing tier is a **project + location singleton** (`ragEngineConfig`), not
-a property of any corpus. Our project already reported `Tier: Basic` while holding **no corpus
-at all**. So deleting the corpus does *not* stop the meter — an earlier draft of this plan said
-it did, and was wrong. Halting it requires setting the tier to `Unprovisioned`, which wipes all
-RAG Engine data in that project and location.
+| Mode | Backing store | Cost shape |
+|---|---|---|
+| `basic` / `scaled` | Spanner instance | **Provisioned. Bills continuously** |
+| `serverless` | Vector Search | Per use. No provisioned instance |
+| `unprovisioned` | none | Nothing, and all RAG data is deleted |
 
-This is the single largest standing cost in the project, and it is easy to miss because
-nothing in the interface announces it. Which leads directly to the next decision.
+**We are on `serverless`** (`make rag-serverless`), which removes the standing cost this plan
+was built around. Two things forced and confirmed the choice:
 
-> **TODO before building:** put the actual dollar figure in §5. A cost decision without a
-> number can't be weighed. 100 PU/month in our region — get it from the pricing calculator.
+- Spanner mode is **allowlist-only for new projects** in `us-central1`, `us-east1` and
+  `us-east4`. Corpus creation failed outright with a capacity restriction, which is also
+  evidence that no Spanner instance was ever provisioned here.
+- Serverless is backed by Vector Search, so `vectorsearch.googleapis.com` must be enabled.
+  Ours is; a fresh project will need `gcloud services enable vectorsearch.googleapis.com`.
+
+**A correction to an earlier draft of this document, because the mistake is instructive.** It
+claimed the project was "billing right now" because `rag-status` reported `Tier: Basic` with no
+corpus present. That inference was wrong: `get_config` reports the **configured mode**, and
+`basic` is simply the default value when nothing has been set. A mode reading is not evidence
+of a running instance. The structural claim survives — the mode is project-wide and a corpus
+deletion does not change it — but "the meter is running" was asserted from a setting rather
+than from a bill.
+
+> **Still open:** the actual dollar figures, now for serverless rather than Spanner — per-query
+> and per-GB-stored. Open question #3. Cheaper than a standing instance is not the same as
+> free, and this document still contains no numbers.
 
 ---
 
@@ -242,12 +282,13 @@ nothing in the interface announces it. Which leads directly to the next decision
 
 **Decision.** Four commands, because 2.5 means corpus lifetime and billing are separate things:
 
-| Command | What it does | Stops the bill? |
+| Command | What it does | Removes standing cost? |
 |---|---|---|
 | `make rag-up` | Create the corpus, ingest `docs/*.pdf` | — |
-| `make rag-status` | Show corpus contents **and the billing tier** | — |
-| `make rag-down` | Delete the corpus | **No** — see 2.5 |
-| `make rag-unprovision` | Set the tier to `Unprovisioned` | **Yes** |
+| `make rag-status` | Show corpus contents **and the billing mode** | — |
+| `make rag-serverless` | Switch the project+location to serverless | **Yes** — this is the lever |
+| `make rag-down` | Delete the corpus | n/a under serverless |
+| `make rag-unprovision` | Delete all RAG data, mode `unprovisioned` | Absolute, and destructive |
 
 `make eval` refuses to run when no corpus exists, rather than grading a broken system and
 producing failures that look like model problems — see the last cost bullet below.
@@ -256,9 +297,14 @@ Normal cycle: bring it up, build or evaluate or demo, tear it down. `rag-unprovi
 one to run when you are done for a while — it is destructive project-wide, so it requires
 typing the region to confirm.
 
-**Why.** It converts an always-on cost into a pay-for-what-you-use one. With a few small PDFs,
-re-ingestion takes minutes and costs pennies in embedding generation. The economics strongly
-favour deleting it.
+**Why — and serverless changes the force of this.** The original reason was to convert an
+always-on Spanner bill into a pay-for-use one. Serverless (2.5) already does that, so the
+teardown ritual is no longer the thing standing between you and a standing charge.
+
+It still earns its place, for smaller reasons: storage is not free, an idle corpus drifts out of
+sync with edited policy documents, and re-ingestion of three small PDFs takes minutes. But the
+honest position is that **`rag-down` is now hygiene, not the cost control it was drafted as** —
+the cost control was `rag-serverless`, and it is a one-time switch.
 
 **What it costs us.**
 
@@ -927,29 +973,32 @@ should contain at least two actual dollar amounts.
 - [x] `scripts/rag_corpus.py` + `make rag-up` / `rag-status` / `rag-down` / `rag-unprovision`.
       Corpus resolved by display name, never by ID (2.6). `rag-status` runs clean against the
       project and prints the billing tier.
-- [ ] Run `make rag-up` and ingest all three PDFs into one corpus.
-- [ ] Confirm a hand-written query returns the right clause.
-      *If retrieval is broken, every downstream result is noise.*
-- [ ] Verify per-specialist scoping (2.4): a billing query must not return returns chunks.
-- [ ] Sanity-check the seam: "can I return the Solstice trainers" must surface the catalogue's
-      final-sale line, not just the general 14-day rule.
+- [x] `make rag-serverless` — Spanner mode is allowlist-only for new projects in us-central1,
+      us-east1 and us-east4, so corpus creation failed outright until we switched. Serverless is
+      backed by Vector Search, so `vectorsearch.googleapis.com` had to be enabled.
+- [x] `make rag-up` — all three PDFs ingested into one corpus in `us-central1`.
+- [x] A hand-written query returns the right clause: "Is the Solstice Edition returnable?"
+      surfaces the catalogue's *"Final sale. Not returnable or exchangeable unless faulty."*
+- [x] Per-specialist scoping verified (2.4): the same refund query returns only billing
+      chunks under billing scope, and the billing chunks are discarded under returns scope.
+- [x] Measured what retrieval can and cannot do — see the distance table in §4. It cannot
+      produce refusals, which changes where that safety property actually lives.
 
-### 6.4 Build the agents
-- [ ] Session service selection (2.7) — SQLite locally, one function, env-var switched.
-- [ ] Memory service selection (2.8) — in-memory locally, Memory Bank once deployed, plus
-      the `load_memory` tool. Real behaviour is untestable until §6.6.
-- [ ] `search_returns_policy` / `search_billing_policy`, each scope-asserting, each with a clean
-      failure message when the corpus is absent.
-- [ ] Mocked lookup tools (order, invoice) — read-only, ungated.
-- [ ] `request_*` tools for every material action, returning a reference number and a
-      plain-English summary. None of them complete anything (2.11).
-- [ ] The escalation reply itself: reference number, what was requested, what happens next.
-      It is a core surface, not a fallback.
-- [ ] Two specialists with `mode='single_turn'`. **Verify control actually returns to the root**
-      before writing prompts — this is the 2.2 trap.
-- [ ] Root agent: routing, warm tone, explicit ban on altering a specialist's ruling.
-- [ ] Root collects `user:contact_method` and `user:contact_detail` on first contact, and
-      does NOT re-ask when they are already set (2.8). Eval case listed in §4.
+### 6.4 Build the agents — DONE
+- [x] Session and memory selection extended in `app/app_utils/services.py` — the scaffold
+      already had a factory with the same local/deployed shape, so we extended it rather than
+      writing a second one. A parallel implementation would have been exactly the two-code-path
+      bug 2.7 warns about. It also means `GOOGLE_CLOUD_AGENT_ENGINE_ID` (the runtime's name) is
+      the one that counts.
+- [x] `search_returns_policy` / `search_billing_policy` — scope-asserting, with a clean
+      `POLICY_LOOKUP_UNAVAILABLE` message rather than an empty result.
+- [x] Mocked lookups reading `data/fixtures.json`, with `days_since_delivery` computed in code.
+- [x] `request_*` tools that file for human approval and return a reference number. Verified by
+      test that none can mark a request approved.
+- [x] Two specialists with `mode='single_turn'`, asserted by test rather than assumed.
+- [x] Root agent: routing, warm tone, explicit ban on altering a ruling.
+- [ ] Root collects `user:contact_method` / `user:contact_detail` — prompt written, behaviour
+      not yet verified. Needs the eval case in §4.
 - [ ] Log the model version from each response, to catch silent routing (2.9).
 
 ### 6.5 Evaluate — the phase that actually decides if this works
@@ -977,7 +1026,7 @@ should contain at least two actual dollar amounts.
 | # | Question | How we settle it |
 |---|---|---|
 | 1 | Real success criteria, including latency and cost targets | You replace the placeholders in §1 — this gates §6.5 |
-| 2 | Is a 4–6 call turn fast enough for a chat UX? | Measure p95 in §6.5 before trusting §1's target. If not, 2.10 reopens |
+| 2 | 20.3s on the first measured turn — far over target. Streaming, or fewer hops? | Measure p95 properly in §6.5. If streaming does not carry it, 2.10 and 2.2 both reopen |
 | 3 | What does the RAG corpus actually cost per month? | Pricing calculator, before §6.3 |
 | 4 | Does idle Agent Runtime bill? | Deploy, wait 24h, read the billing console |
 | 5 | Is the `customtools` model variant better? | A/B once evals exist |
