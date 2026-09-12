@@ -84,7 +84,7 @@ agents-cli install      # install dependencies
 make rag-serverless     # one-time: put the project in serverless mode
 make rag-up             # create the corpus, ingest docs/*.pdf
 make smoke              # run real conversations end to end
-make playground         # interactive local testing
+make playground         # interactive local testing at /dev-ui/?app=app
 ```
 
 ## Configuration
@@ -104,7 +104,8 @@ always need ADC plus `GOOGLE_CLOUD_PROJECT`. Do not comment that variable out.
 | `make rag-unprovision` | Halt RAG Engine billing — destructive, project-wide |
 | `make smoke` | Real conversations through the agent (spends credits) |
 | `make test` | Unit and integration tests |
-| `agents-cli playground` | Launch local development environment |
+| `make playground` | Local UI, with the same session/memory services as the server |
+| `make playground-plain` | `agents-cli playground` — ADK defaults, no persistence |
 | `agents-cli eval run` | Run the agent over the eval dataset and grade it |
 | `agents-cli lint` | Code quality checks |
 | `agents-cli deploy` | Deploy to Agent Runtime |
@@ -119,6 +120,17 @@ uv run --with reportlab python scripts/make_billing_policy.py
 ```
 
 Re-run `make rag-up` afterwards so the corpus picks up the change.
+
+## Playground
+
+```bash
+make playground        # then open http://127.0.0.1:8080/dev-ui/?app=app
+```
+
+Use `make playground`, not `agents-cli playground`. The latter runs `adk web` with no service
+flags, so it falls back to ADK's in-memory defaults — conversations vanish on restart, there is
+no memory service, and `user:` state does not carry between sessions. `make playground` passes
+the session and memory services explicitly so what you test locally matches what runs deployed.
 
 ## Evaluation
 

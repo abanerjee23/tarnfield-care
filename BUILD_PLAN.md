@@ -378,8 +378,17 @@ Cloud SQL is needed for conversations.
 **What it costs us.**
 
 - **Two code paths, so a bug can exist in one and not the other.** Mitigation: the selection
-  lives in exactly one function, and both paths are exercised — local by daily use, deployed by
-  a smoke test after each deploy.
+  lives in exactly one function — we extended the scaffold's existing factory in
+  `app/app_utils/services.py` rather than writing a second one, which is the version of this bug
+  that would have been hardest to spot.
+- **The playground does not get these services by default, and says nothing about it.**
+  `agents-cli playground` shells out to `adk web .` with no service flags, so it runs on ADK's
+  in-memory defaults: conversations lost on restart, no memory service, `user:` state not
+  carried between sessions. Confirmed by checking that a playground session never reached our
+  SQLite file. `make playground` therefore passes `--session_service_uri` and
+  `--memory_service_uri` explicitly so local testing matches the server. `make
+  playground-plain` keeps the unconfigured behaviour for comparison. **This is the exact shape
+  of bug this decision warns about, and it was found by looking rather than by assuming.**
 - **The local DB is a real file holding real conversation text.** It is gitignored; keep it
   that way.
 - Agent Engine sessions are only reachable once something is deployed, so the deployed path

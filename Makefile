@@ -5,8 +5,11 @@
 # property of your corpus -- so `rag-down` alone does NOT stop the meter.
 # See BUILD_PLAN.md 2.5 and 2.6.
 
+PORT ?= 8080
+SESSION_DB ?= ./.sessions/sessions.db
+
 .DEFAULT_GOAL := help
-.PHONY: help rag-up rag-status rag-down rag-serverless rag-unprovision playground smoke test eval lint docs
+.PHONY: help rag-up rag-status rag-down rag-serverless rag-unprovision playground playground-plain smoke test eval lint docs
 
 help:  ## Show this help
 	@echo "customer-chatbot-rag"
@@ -35,7 +38,18 @@ rag-unprovision:  ## Halt RAG Engine billing. Destructive, project-wide.
 
 # --- Development --------------------------------------------------------------
 
-playground:  ## Interactive local testing
+playground:  ## Interactive local testing, with the same services the server uses
+	@# `agents-cli playground` shells out to `adk web .` and passes no service
+	@# flags, so it would run on ADK's in-memory defaults -- conversations lost on
+	@# restart, and no memory service at all. We pass them explicitly so the
+	@# playground exercises what BUILD_PLAN 2.7/2.8 actually specify.
+	@mkdir -p .sessions
+	uv run adk web . --host 127.0.0.1 --port $(PORT) --allow_origins '*' --reload_agents \
+		--session_service_uri "sqlite://$(SESSION_DB)" \
+		--memory_service_uri "memory://"
+	@echo "Open http://127.0.0.1:$(PORT)/dev-ui/?app=app"
+
+playground-plain:  ## Playground via agents-cli (ADK defaults; no persistence)
 	agents-cli playground
 
 test:  ## Unit and integration tests
