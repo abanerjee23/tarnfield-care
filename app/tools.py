@@ -15,6 +15,7 @@ from __future__ import annotations
 from typing import Any
 
 from google.adk.tools import ToolContext
+from google.adk.tools.load_memory_tool import load_memory_tool
 
 from app import config, fixtures, retrieval
 
@@ -224,7 +225,13 @@ def escalate_to_human(topic: str, summary: str, tool_context: ToolContext) -> di
     return _file("escalation", "n/a", summary, tool_context, topic=topic)
 
 
+# `load_memory` searches what was said in EARLIER conversations (BUILD_PLAN 2.8).
+# It is deliberately the last tool listed: it supplies context to reason with,
+# never a determination. The specialists' instructions state that the policy
+# outranks anything memory returns, and there is an eval case for exactly the
+# case where the two disagree.
 RETURNS_TOOLS = [search_returns_policy, lookup_order, request_return,
-                 request_exchange, escalate_to_human]
+                 request_exchange, escalate_to_human, load_memory_tool]
 BILLING_TOOLS = [search_billing_policy, lookup_order, lookup_invoice,
-                 check_charges, request_billing_adjustment, escalate_to_human]
+                 check_charges, request_billing_adjustment, escalate_to_human,
+                 load_memory_tool]

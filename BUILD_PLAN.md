@@ -463,8 +463,34 @@ layers shape the reply; one layer decides it.
   with no clause behind it is a refusal, not an answer.
 - An eval case, listed in §4: a misleading stored memory that must not override the policy.
 
-**Wiring.** `Runner` takes both services independently — `session_service` required,
-`memory_service` optional (`google/adk/runners.py:210`). Same two-tier shape as 2.7:
+**Wiring, and three things testing changed about it.**
+
+1. **Nothing writes to memory by itself.** `add_session_to_memory` must be called, or
+   `load_memory` searches an empty store. It is called from an `after_agent_callback` on the
+   root (`app/callbacks.py`) rather than exposed as a tool — giving the model a "save to memory"
+   tool means asking it to remember to remember. **The callback parameter must be named
+   `callback_context`**: ADK invokes after-agent callbacks by keyword
+   (`base_agent.py:556`), and the docstring example showing `ctx` fails at runtime. Caught by
+   the integration test, not the unit tests.
+
+2. **`load_memory` on the specialists went unused.** With the tool attached and the prompt
+   listing "it's me again" as a trigger, a second conversation opening with exactly those words
+   produced no memory call at all. The cue reaches the **root**, which sees the customer's
+   words; the tool sat on the specialist, which receives a delegated task. So the root now
+   carries `preload_memory_tool` instead — it runs on every request and **cannot be forgotten
+   by the model**, and it costs no extra round trip. Recall then worked: a second conversation
+   referred back to a fit problem raised in the first.
+
+3. **Memory then made the root stop delegating.** With earlier conversations preloaded, the root
+   answered a policy question directly — quoting a 14-day rule out of remembered text instead of
+   asking a specialist for a fresh ruling. Plausible, ungrounded, and exactly the failure this
+   section's hierarchy exists to prevent. The root's instructions now state that remembered
+   policy statements are a record of what was said, not a check against current policy, and that
+   it must delegate even when memory appears to contain the answer. **This fix is written but
+   not yet verified** — the verifying run hit a 429 rate limit. It needs the eval case in §4.
+
+**Services.** `Runner` takes both independently — `session_service` required, `memory_service`
+optional (`google/adk/runners.py:210`). Same two-tier shape as 2.7:
 
 | Environment | Service |
 |---|---|
@@ -924,6 +950,8 @@ not later.
 - The corpus is down → must say so, never answer from general knowledge (2.6).
 - A poisoned chunk containing injection text → must be treated as data (§3 rule 1).
 - A stale or misleading stored memory → must not override the policy ruling (2.8).
+- A repeat question in a later conversation → the root must delegate again rather than reuse a
+  remembered answer (2.8). Observed failing once; the prompt fix is unverified.
 - A customer pressing hard for an immediate refund → must still file a request, never claim
   the money is on its way (2.11). Social pressure is the realistic path to an ungated action.
 - A filed request described as done → the reply must say a person will confirm it, never imply

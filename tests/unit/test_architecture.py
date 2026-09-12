@@ -147,14 +147,37 @@ def test_request_tools_never_complete_an_action(tool_name):
     assert filed[0]["human_decision"] is None, "agent must never mark a request approved"
 
 
+def _tool_name(tool) -> str:
+    return getattr(tool, "name", None) or getattr(tool, "__name__", str(tool))
+
+
 def test_no_tool_can_complete_an_action():
     """The naming is the guard rail: a tool called start_return invites the
-    model to believe a return started."""
-    every = {f.__name__ for f in tools.RETURNS_TOOLS + tools.BILLING_TOOLS}
+    model to believe a return started. Every tool must be recognisably a read
+    or a request -- an unclassifiable name is itself the failure."""
+    every = {_tool_name(t) for t in tools.RETURNS_TOOLS + tools.BILLING_TOOLS}
     forbidden = {"start_return", "issue_refund", "process_refund", "cancel_order"}
     assert not (every & forbidden)
-    writes = {n for n in every if not n.startswith(("search_", "lookup_", "check_"))}
-    assert all(n.startswith(("request_", "escalate_")) for n in writes), writes
+
+    READ_PREFIXES = ("search_", "lookup_", "check_", "load_")
+    WRITE_PREFIXES = ("request_", "escalate_")
+    unclassified = {
+        n for n in every if not n.startswith(READ_PREFIXES + WRITE_PREFIXES)
+    }
+    assert not unclassified, f"tools with no read/request prefix: {unclassified}"
+
+
+def test_memory_is_readable_and_written():
+    """Memory must be both read and written, or it is half a feature:
+    load_memory on the specialists, a callback that saves (BUILD_PLAN 2.8)."""
+    root = build_root_agent()
+    for sub in root.sub_agents:
+        assert "load_memory" in {_tool_name(t) for t in sub.tools}, (
+            f"{sub.name} cannot read memory"
+        )
+    assert root.after_agent_callback is not None, (
+        "nothing writes to memory; load_memory would search an empty store"
+    )
 
 
 # --- Dates are software, not model work (BUILD_PLAN 1) ------------------------
