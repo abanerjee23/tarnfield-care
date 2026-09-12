@@ -215,3 +215,39 @@ def test_specialists_must_cite_and_may_refuse():
         assert "CITE" in text
         assert "escalate" in text.lower()
         assert "policy wins" in text.lower()
+
+
+# --- BUILD_PLAN 2.8: the contact fields must be writable, not just described ---
+
+
+def test_root_can_actually_save_contact_details():
+    """The instruction told the root not to re-ask for details it had no way to
+    store. An unenforceable instruction is worse than none: it reads as working."""
+    ctx = _ToolCtx()
+    out = tools.remember_contact_details("Email", " priya@example.com ", ctx)
+    assert out["saved"] is True
+    assert ctx.state["user:contact_method"] == "email"
+    assert ctx.state["user:contact_detail"] == "priya@example.com"
+
+
+def test_contact_details_use_user_scope():
+    """Without the user: prefix they die with the conversation, which is the
+    whole bug this fixes."""
+    ctx = _ToolCtx()
+    tools.remember_contact_details("email", "x@example.com", ctx)
+    assert all(k.startswith("user:") for k in ctx.state), ctx.state
+
+
+def test_empty_contact_detail_is_not_stored():
+    ctx = _ToolCtx()
+    assert tools.remember_contact_details("email", "   ", ctx)["saved"] is False
+    assert not ctx.state
+
+
+def test_root_reads_contact_state_back():
+    """Storing is half of it -- the root must also see what is stored, or it
+    asks again anyway. ADK's {var?} syntax makes the placeholder optional."""
+    root = build_root_agent()
+    assert "{user:contact_method?}" in root.instruction
+    assert "{user:contact_detail?}" in root.instruction
+    assert "remember_contact_details" in {_tool_name(t) for t in root.tools}

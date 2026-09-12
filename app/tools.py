@@ -135,6 +135,34 @@ def check_charges(order_id: str) -> dict[str, Any]:
     }
 
 
+# --- Customer details we can name in advance (BUILD_PLAN 2.8) -----------------
+
+
+def remember_contact_details(method: str, detail: str,
+                             tool_context: ToolContext) -> dict[str, Any]:
+    """Save how this customer wants to be contacted, for future conversations.
+
+    Call this as soon as a customer gives you a contact detail, even in passing.
+    Without it the detail is forgotten the moment the conversation ends and they
+    will be asked for it again next time, which reads as nobody listening.
+
+    Args:
+        method: How to reach them -- "email", "phone" or "post".
+        detail: The address or number itself.
+
+    Returns:
+        Confirmation of what was stored.
+    """
+    method = (method or "").strip().lower()
+    detail = (detail or "").strip()
+    if not detail:
+        return {"saved": False, "reason": "No contact detail given."}
+    # user: scoping is what makes these survive into the next conversation.
+    tool_context.state["user:contact_method"] = method
+    tool_context.state["user:contact_detail"] = detail
+    return {"saved": True, "contact_method": method, "contact_detail": detail}
+
+
 # --- Requests: filed for a human, never completed (BUILD_PLAN 2.11) -----------
 
 
@@ -230,6 +258,8 @@ def escalate_to_human(topic: str, summary: str, tool_context: ToolContext) -> di
 # never a determination. The specialists' instructions state that the policy
 # outranks anything memory returns, and there is an eval case for exactly the
 # case where the two disagree.
+ROOT_TOOLS = [remember_contact_details]
+
 RETURNS_TOOLS = [search_returns_policy, lookup_order, request_return,
                  request_exchange, escalate_to_human, load_memory_tool]
 BILLING_TOOLS = [search_billing_policy, lookup_order, lookup_invoice,

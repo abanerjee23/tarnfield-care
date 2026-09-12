@@ -71,7 +71,7 @@ def build_root_agent() -> LlmAgent:
         # model, so recall cannot be forgotten. Testing showed the discretionary
         # load_memory tool going unused even on "it's me again" -- the root sees
         # the customer's words, so this is where memory belongs.
-        tools=[preload_memory_tool],
+        tools=[preload_memory_tool, *tools.ROOT_TOOLS],
         sub_agents=[build_returns_specialist(), build_billing_specialist()],
         # Deterministic, so it does not depend on the model choosing to do it.
         # Specialists run inline in the root's session (2.2), so saving here

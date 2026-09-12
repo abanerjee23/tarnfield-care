@@ -425,10 +425,18 @@ to be contacted and for the detail itself, then stores both:
 
 | Key | Example | Set by |
 |---|---|---|
-| `user:contact_method` | `"email"` | Root, on first contact |
-| `user:contact_detail` | `"priya@example.com"` | Root, on first contact |
-| `user:customer_id` | `"C-4471"` | Order lookup |
-| `user:open_return_ref` | `"R-1029"` | Return initiation |
+| `user:contact_method` | `"email"` | Root, via `remember_contact_details` |
+| `user:contact_detail` | `"priya@example.com"` | Root, via `remember_contact_details` |
+| `user:customer_id` | `"C-4471"` | `lookup_order` |
+| `user:open_request_ref` | `"REQ-8B6053"` | Any `request_*` tool |
+
+**A table is not a mechanism.** This table existed for several commits before
+anything wrote the first two rows. The root's instructions said "if they are already
+known, do not ask again" — with no tool to store them and no way to read them back,
+so it re-asked in every conversation while appearing to have the feature. Found by
+using the bot, not by reading the code. Both halves now exist: the tool writes the
+keys, and `{user:contact_method?}` in the root's instruction reads them back — ADK's
+`?` suffix renders an unset value as blank rather than raising.
 
 Exact, free, deletable, identical locally and deployed. Asked once, not every conversation —
 which is itself the first visible payoff of having memory at all.
