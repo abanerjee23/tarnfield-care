@@ -1,15 +1,8 @@
-"""Read the dummy order/billing data, and file human-review requests.
-
-The fixture is read-only seed data that ships with the agent (BUILD_PLAN 2.12).
-Filed requests are appended to an in-process list, not written back: the record
-that matters is the one the human reviewer works from, which lives outside this
-system. Writes do not survive a restart, and that is understood, not accidental.
-"""
+"""Read deterministic demonstration order and billing data."""
 
 from __future__ import annotations
 
 import json
-import secrets
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -23,7 +16,6 @@ FIXTURES_PATH = Path(__file__).resolve().parent / "data" / "fixtures.json"
 TODAY = date(2026, 9, 12)
 
 _data: dict[str, Any] | None = None
-_filed_requests: list[dict[str, Any]] = []
 
 
 def _load() -> dict[str, Any]:
@@ -61,31 +53,7 @@ def days_since_delivery(order: dict[str, Any]) -> int | None:
     return (TODAY - date.fromisoformat(delivered)).days
 
 
-def file_request(kind: str, order_id: str, summary: str, details: dict[str, Any]) -> dict[str, Any]:
-    """Record a request for a human to approve. Completes nothing.
-
-    Returns the reference the customer is given (BUILD_PLAN 2.11).
-    """
-    ref = f"REQ-{secrets.token_hex(3).upper()}"
-    record = {
-        "reference": ref,
-        "kind": kind,
-        "order_id": order_id,
-        "summary": summary,
-        "details": details,
-        "filed": TODAY.isoformat(),
-        "human_decision": None,
-    }
-    _filed_requests.append(record)
-    return record
-
-
-def filed_requests() -> list[dict[str, Any]]:
-    return list(_filed_requests)
-
-
 def reset() -> None:
-    """Clear filed requests and cached data. Tests only."""
+    """Clear cached fixture data. Tests only."""
     global _data
     _data = None
-    _filed_requests.clear()

@@ -95,7 +95,7 @@ def _resolve_app_url(app_url: str | None) -> str:
     project = os.getenv("GOOGLE_CLOUD_PROJECT")
     # Not GOOGLE_CLOUD_LOCATION: the agent pins it to "global", which would build
     # an invalid "global-aiplatform.googleapis.com" URL.
-    location = os.getenv("GOOGLE_CLOUD_AGENT_ENGINE_LOCATION", "us-east1")
+    location = os.getenv("GOOGLE_CLOUD_AGENT_ENGINE_LOCATION", "us-central1")
     if agent_engine_id and project and location:
         return (
             f"https://{location}-aiplatform.googleapis.com/reasoningEngines/v1"
@@ -138,7 +138,12 @@ async def attach_a2a_routes(
     ).build()
 
     request_handler = DefaultRequestHandler(
-        agent_executor=A2aAgentExecutor(runner=runner, force_new_version=True),
+        # ADK 2.6's new executor persists the correct final root event but does
+        # not surface its text to the current agents-cli A2A client. The legacy
+        # converter publishes that final text as a task artifact, which keeps
+        # the deployed customer contract usable. Remove only after a live A2A
+        # regression proves the new converter end to end.
+        agent_executor=A2aAgentExecutor(runner=runner, use_legacy=True),
         task_store=task_store,
         agent_card=agent_card,
     )

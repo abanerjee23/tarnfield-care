@@ -1,7 +1,7 @@
 name: 'customer-chatbot-rag'
 acli_version: '1.5.0'
 agent_directory: 'app'
-region: 'us-east1'
+region: 'us-central1'
 base_template: 'adk'
 generated_at: '2026-09-11T21:03:05.896339+00:00'
 language: 'python'

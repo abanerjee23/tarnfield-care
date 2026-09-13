@@ -11,23 +11,29 @@ reference is given.
 
 ## 1. ADK specifics that are easy to get wrong
 
-### `mode='single_turn'` on sub-agents (BUILD_PLAN 2.2)
+### Explicit specialist AgentTools (BUILD_PLAN 2.2)
 
-Specialists attach via `sub_agents=[...]` with `mode='single_turn'` on each.
+Returns and Billing are real `LlmAgent` instances wrapped as tools on the root. The root calls
+one, receives its grounded result, and then produces the customer response.
 
-**The trap:** ADK's default is `mode='chat'`, which makes a sub-agent reachable via
-`transfer_to_agent` — and after a transfer **the sub-agent talks to the customer directly**. The
-root never rewords anything. Attaching `sub_agents=[returns, billing]` without setting `mode`
-silently gives you an architecture nobody asked for, and it looks like it is working.
+ADK 2.6 recommends attaching `mode='single_turn'` agents through `sub_agents`. That worked in the
+internal Agent Runtime stream, but the deployed A2A surface completed without emitting the final
+assistant message. The explicit `AgentTool` boundary is therefore a deliberate compatibility
+choice backed by a live test, not accidental use of an older pattern. It also makes the product
+contract obvious: specialists return evidence to the root; they do not own the customer voice.
 
-Verified present in the installed ADK at `google/adk/agents/llm_agent.py:342`. ADK 2.6 documents
-this as preferred over wrapping specialists in `AgentTool`, whose own docstring calls direct use
-"discouraged" (`google/adk/tools/agent_tool.py:125`).
+Wrapped specialists use `mode='chat'`. `AgentTool` creates a nested runner and ADK rejects any
+other mode for that nested root; this was caught from the deployed A2A error log and is asserted
+structurally in the test suite.
 
-Single-turn sub-agents run **inline in the parent's session**, which is what makes the session
-event log complete without any agent-to-agent logging code.
+The A2A route currently opts into ADK's legacy event converter. With the new 2.6 executor, the
+correct final root message was present in the managed-session event log but absent from the
+stream consumed by `agents-cli run --mode a2a`. The legacy converter publishes that same final
+message as an A2A artifact. This is a compatibility pin with a live regression test, not a
+permanent preference; remove it when the new executor and client interoperate.
 
-Asserted by test in `tests/unit/test_architecture.py` rather than assumed.
+The unit test asserts that exactly the Returns and Billing agents are wrapped and that the root
+has no transfer-based sub-agents. The deployed A2A smoke is the behavioural proof.
 
 ### Callback parameter naming (BUILD_PLAN 2.8)
 
@@ -150,8 +156,15 @@ Both managed services take `project=config.PROJECT_ID`, not `os.environ["GOOGLE_
 The **file** does not ship. But `agents-cli deploy` reads it and turns every line into a
 deployment env var, readable by anyone with project access.
 
-- **No secrets in `.env`.** `GEMINI_API_KEY` stays commented out and arrives from Secret Manager
-  via `--secrets GEMINI_API_KEY=gemini-api-key`.
+- **No secrets in `.env`.** `GEMINI_API_KEY` arrives in Agent Runtime from Secret Manager via
+  `--secrets GEMINI_API_KEY=gemini-api-key`.
+- Local development puts `GEMINI_API_KEY` in the git-ignored `.env.local`. `app/__init__.py`
+  loads `.env` first and then applies `.env.local` only when it is not running in Agent Runtime.
+  This gives local development the Gemini Developer API key without turning it into a deployment
+  environment variable.
+- Specialists receive deterministic records and scoped RAG evidence through
+  `get_returns_context` or `get_billing_context`. Raw extracts stay in the tool result for traces
+  and eval failure analysis; the model still makes the policy judgement.
 - **`GOOGLE_CLOUD_PROJECT` is stripped** as a reserved variable. The deployed agent never sees
   it.
 - Local-only settings must not be set in `.env` at all, or they travel. `SESSION_BACKEND` and
@@ -261,9 +274,9 @@ Lifecycle lives in `scripts/rag_corpus.py`: `up` / `status` / `down` / `serverle
 
 ## 7. Testing
 
-`uv run pytest tests/unit tests/integration` — 26 unit, 6 integration.
+`uv run pytest` — 50 passing checks and one intentionally opt-in live-credit check.
 
-They cover **wiring, not judgement**: that specialists are `single_turn`, that scope assertion
+They cover **wiring, not judgement**: that specialists are explicit root tools, that scope assertion
 drops foreign chunks, that no `request_*` tool can mark a request approved, that the callback
 signature is what ADK will call. Model output is non-deterministic and belongs in evals, not in
 pytest.
@@ -279,32 +292,62 @@ comparison.
 
 ---
 
-## 8. Identifiers
+## 8. Firestore support actions
 
 - **Customer id** — `user:customer_id`, set by `lookup_order` from the fixture.
-- **Request refs** — `REQ-{secrets.token_hex(3).upper()}`, generated in `app/fixtures.py`.
+- **Request refs** — `REQ-` plus ten uppercase characters from an idempotency-key hash,
+  generated in `app/support_actions.py`.
 
-**Request refs currently go to an in-process Python list.** Nothing reads it, nothing persists
-it, and a container restart loses it. Customer state keeps the full list for the conversation
-(`user:open_request_refs`, plus `user:open_request_ref` for the most recent), which is what stops
-a second request erasing the first reference — but that is session state, not a record anyone can
-look up. The reference number given to a customer is not resolvable
-by anyone. Fine for a demo; it is the open gap behind BUILD_PLAN's escalation path, and the
-`case_outcome` table (2.15) is where it should land.
+Agent Runtime and Cloud Run select `FirestoreSupportActionStore`; local development and unit
+tests default to the same interface backed by memory. A request reference is returned only after
+Firestore confirms creation. Repeated delivery of the same tool call resolves to the existing
+record rather than filing a duplicate.
+
+Review transitions execute in Firestore transactions with an expected version. This makes a
+stale dashboard tab fail visibly instead of silently overwriting another reviewer's decision.
+Each change appends actor, time, event and note to the audit list. The agent toolset contains
+create and status lookup only; approval and completion exist solely behind the reviewer API.
+
+The first live storage smoke moved a request through `pending → in_review → approved →
+completed`, retained four audit events, then deleted the synthetic record.
+
+---
+
+## 9. Private Support Operations dashboard
+
+`app/dashboard_app.py` is deployed separately to the private Cloud Run service
+`support-ops-dashboard`. Its dedicated service account can read and update Firestore. The
+customer-facing Agent Runtime identity has no decision tool in its application capability
+surface.
+
+The portfolio MVP uses Cloud Run IAM to reject unauthenticated traffic and maps every admitted
+request to the one configured reviewer account. This is honest single-reviewer
+attribution, not a pretend multi-user login system. If more reviewers are added, put IAP in front
+of the service and use its authenticated-user header so each audit event retains the real actor.
+
+The dashboard polls every 15 seconds. Firestore remains the operational source of truth;
+BigQuery is intentionally deferred until history size or analytical complexity makes an export
+useful.
+
+Cloud resources were provisioned manually during the live build and also declared in Terraform.
+Because this repository had no initialised Terraform state and Terraform is unavailable on this
+machine, import the existing database, service account and Artifact Registry repository before a
+future full apply.
 
 `TODAY = date(2026, 9, 12)` is pinned in `app/fixtures.py` so `days_since_delivery` is stable for
 evals.
 
 ---
 
-## 9. Known gaps
+## 10. Known gaps
 
-- `case_outcome` → BigQuery (BUILD_PLAN 2.15) is **designed and not built.** No dataset exists in
-  the project. Human override rate is unmeasurable until it does.
-- Request refs are not persisted (§8). Every reference filed in a conversation is now kept in
-  `user:open_request_refs` rather than one key being overwritten, but that list still lives only
-  in session state.
-- `MEMORY_BACKEND` is still set on the live deployment. It is dead config — nothing reads it —
-  and clears on the next deploy.
-- Latency is unaddressed: 22.9s on the deployed final-sale test, 4.5–40s observed locally,
-  against an 8s target. Per-hop timings have not been measured.
+- There is no commerce connector. A reviewer records completion but no code issues a refund or
+  modifies an order.
+- The dashboard identity mode supports one reviewer. Multi-user production use requires IAP or
+  an equivalent identity-aware proxy.
+- `MEMORY_BACKEND` and `SESSION_BACKEND` remain visible as legacy Agent Runtime environment
+  values after update-only deploys. Runtime selection checks the injected engine ID first, so
+  managed sessions and Memory Bank still win; a future full configuration replacement should
+  remove the dead values.
+- Latency remains above target: recent grounded turns took roughly 22–29 seconds. Repeated model
+  and architecture experiments are still required.

@@ -26,7 +26,23 @@ variable "project_id" {
 variable "region" {
   type        = string
   description = "Google Cloud region for resource deployment."
-  default     = "us-east1"
+  default     = "us-central1"
+}
+
+variable "firestore_location" {
+  type        = string
+  description = "Firestore location for durable support actions. This cannot be changed after creation."
+  default     = "us-central1"
+}
+
+variable "dashboard_image" {
+  type        = string
+  description = "Versioned Artifact Registry image for the Support Operations dashboard."
+}
+
+variable "dashboard_reviewer_email" {
+  type        = string
+  description = "Google account allowed to invoke and act as the single reviewer in the portfolio MVP."
 }
 
 variable "telemetry_logs_filter" {
@@ -45,6 +61,7 @@ variable "app_sa_roles" {
     "roles/cloudtrace.agent",
     "roles/storage.admin",
     "roles/serviceusage.serviceUsageConsumer",
+    "roles/datastore.user",
   ]
 }
 
@@ -57,5 +74,6 @@ variable "reasoning_engine_sa_roles" {
   type        = list(string)
   default = [
     "roles/aiplatform.user",
+    "roles/datastore.user",
   ]
 }

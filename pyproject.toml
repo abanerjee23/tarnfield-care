@@ -1,9 +1,9 @@
 [project]
 name = "customer-chatbot-rag"
 version = "0.1.0"
-description = ""
+description = "A RAG-based multi-agent customer support system with durable human review workflows."
 authors = [
-    {name = "Your Name", email = "your@email.com"},
+    {name = "Abhinav Banerjee"},
 ]
 
 
@@ -16,6 +16,7 @@ dependencies = [
     "google-cloud-logging>=3.12.0,<4.0.0",
     "google-cloud-aiplatform[evaluation,agent-engines]>=1.156.0,<2.0.0",
     "protobuf>=6.31.1,<7.0.0",
+    "google-cloud-firestore>=2.21.0,<3.0.0",
 ]
 requires-python = ">=3.11,<3.14"
 
@@ -95,5 +96,4 @@ asyncio_default_fixture_loop_scope = "session"
 
 [tool.hatch.build.targets.wheel]
 packages = ["app","frontend"]
-
 

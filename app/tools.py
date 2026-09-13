@@ -12,11 +12,14 @@ believe a return started.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from google.adk.tools import ToolContext
 
-from app import config, fixtures, retrieval
+from app import config, fixtures, retrieval, support_actions
+
+logger = logging.getLogger(__name__)
 
 # --- Policy search (BUILD_PLAN 2.3, 2.4) --------------------------------------
 
@@ -134,6 +137,81 @@ def check_charges(order_id: str) -> dict[str, Any]:
     }
 
 
+# --- Complete specialist context (BUILD_PLAN Phase 2) ------------------------
+
+
+def get_returns_context(
+    question: str, order_id: str, tool_context: ToolContext
+) -> dict[str, Any]:
+    """Get the order facts and scoped policy evidence needed for a return ruling.
+
+    This deliberately combines deterministic gathering, not reasoning. The model
+    still decides what the evidence means, but it cannot accidentally check an
+    order and forget the policy (or vice versa).
+
+    Args:
+        question: The customer's return or exchange question in plain language.
+        order_id: The order reference, or an empty string for a general question.
+
+    Returns:
+        Order facts when available plus returns/catalogue policy extracts.
+    """
+    order = lookup_order(order_id, tool_context) if order_id.strip() else None
+    product_context = ""
+    if order and order.get("found"):
+        products = ", ".join(
+            f"{item.get('name', 'unknown item')} ({item.get('sku', 'unknown SKU')})"
+            for item in order["items"]
+        )
+        product_context = f" Products on the order: {products}."
+
+    evidence = search_returns_policy(
+        f"{question}{product_context} Check both the general returns rule and any "
+        "product-specific catalogue restriction."
+    )
+    context = {
+        "order": order or {"provided": False},
+        "policy_evidence": evidence,
+        "context_complete": True,
+    }
+    tool_context.state["temp:support_action_context"] = context
+    return context
+
+
+def get_billing_context(
+    question: str,
+    order_id: str,
+    invoice_id: str,
+    tool_context: ToolContext,
+) -> dict[str, Any]:
+    """Get scoped policy, order, charge and invoice facts for a billing ruling.
+
+    Pass an empty string for an identifier the customer did not provide. Keeping
+    these reads behind one tool makes the required evidence bundle predictable
+    while leaving the specialist responsible for the actual judgement.
+
+    Args:
+        question: The customer's billing question in plain language.
+        order_id: The order reference, or an empty string when not provided.
+        invoice_id: The invoice reference, or an empty string when not provided.
+
+    Returns:
+        Billing-policy extracts and every applicable deterministic lookup.
+    """
+    order = lookup_order(order_id, tool_context) if order_id.strip() else None
+    charges = check_charges(order_id) if order_id.strip() else None
+    invoice = lookup_invoice(invoice_id) if invoice_id.strip() else None
+    context = {
+        "order": order or {"provided": False},
+        "charges": charges or {"provided": False},
+        "invoice": invoice or {"provided": False},
+        "policy_evidence": search_billing_policy(question),
+        "context_complete": True,
+    }
+    tool_context.state["temp:support_action_context"] = context
+    return context
+
+
 # --- Customer details we can name in advance (BUILD_PLAN 2.8) -----------------
 
 
@@ -167,7 +245,37 @@ def remember_contact_details(method: str, detail: str,
 
 def _file(kind: str, order_id: str, summary: str, ctx: ToolContext,
           **details: Any) -> dict[str, Any]:
-    record = fixtures.file_request(kind, order_id.upper(), summary, details)
+    session = getattr(ctx, "session", None)
+    invocation_id = getattr(ctx, "invocation_id", "") or ""
+    function_call_id = getattr(ctx, "function_call_id", "") or ""
+    idempotency_key = (
+        f"{invocation_id}:{function_call_id}"
+        if invocation_id or function_call_id
+        else ""
+    )
+    try:
+        record = support_actions.get_store().create(
+            kind=kind,
+            order_id=order_id.upper(),
+            summary=summary,
+            details=details,
+            customer_id=str(ctx.state.get("user:customer_id") or ""),
+            user_id=str(getattr(ctx, "user_id", "") or ""),
+            session_id=str(getattr(session, "id", "") or ""),
+            idempotency_key=idempotency_key,
+            context=dict(ctx.state.get("temp:support_action_context") or {}),
+        )
+    except Exception:
+        logger.exception("Support action could not be persisted")
+        return {
+            "filed": False,
+            "reference": None,
+            "completed": False,
+            "tell_the_customer": (
+                "The request could not be saved, so no reference exists. Say plainly "
+                "that it was not filed and ask the customer to try again or contact support."
+            ),
+        }
 
     # A customer can file more than one thing in a conversation -- a return AND
     # a billing adjustment is an ordinary pair. A single key silently dropped
@@ -189,6 +297,31 @@ def _file(kind: str, order_id: str, summary: str, ctx: ToolContext,
             f"{record['reference']}. It has NOT been actioned yet. Say so plainly -- "
             f"do not imply the refund, return or adjustment has already happened."
         ),
+    }
+
+
+def get_support_action_status(reference: str) -> dict[str, Any]:
+    """Look up a previously filed human-review request.
+
+    Args:
+        reference: The request reference given to the customer, e.g. REQ-A1B2C3D4E5.
+
+    Returns:
+        Current status and latest human decision details, or a not-found response.
+    """
+    try:
+        record = support_actions.get_store().get(reference)
+    except support_actions.ActionNotFound:
+        return {"found": False, "reference": reference.upper()}
+    return {
+        "found": True,
+        "reference": record["reference"],
+        "status": record["status"],
+        "assigned_queue": record["assigned_queue"],
+        "assignee": record.get("assignee"),
+        "updated_at": record["updated_at"],
+        "decision_note": record.get("decision_note"),
+        "completed": record["status"] == "completed",
     }
 
 
@@ -279,9 +412,16 @@ def escalate_to_human(topic: str, summary: str, tool_context: ToolContext) -> di
 # The root also gets `escalate_to_human`: it is the only agent the customer
 # talks to, and questions arrive that belong to neither specialist ("where is
 # my parcel?"). Without it the root could only misroute or answer ungrounded.
-ROOT_TOOLS = [remember_contact_details, escalate_to_human]
+ROOT_TOOLS = [remember_contact_details, get_support_action_status, escalate_to_human]
 
-RETURNS_TOOLS = [search_returns_policy, lookup_order, request_return,
-                 request_exchange, escalate_to_human]
-BILLING_TOOLS = [search_billing_policy, lookup_order, lookup_invoice,
-                 check_charges, request_billing_adjustment, escalate_to_human]
+RETURNS_TOOLS = [
+    get_returns_context,
+    request_return,
+    request_exchange,
+    escalate_to_human,
+]
+BILLING_TOOLS = [
+    get_billing_context,
+    request_billing_adjustment,
+    escalate_to_human,
+]

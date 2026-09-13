@@ -9,7 +9,7 @@ PORT ?= 8080
 SESSION_DB ?= ./.sessions/sessions.db
 
 .DEFAULT_GOAL := help
-.PHONY: help rag-up rag-status rag-down rag-serverless rag-unprovision playground playground-plain smoke test eval lint docs
+.PHONY: help rag-up rag-status rag-down rag-serverless rag-unprovision playground playground-plain smoke memory-smoke deployed-memory-smoke deployed-action-smoke dashboard test eval lint docs
 
 help:  ## Show this help
 	@echo "customer-chatbot-rag"
@@ -57,6 +57,18 @@ test:  ## Unit and integration tests
 
 smoke:  ## Run real conversations through the agent (spends credits; corpus must be up)
 	@SMOKE_Q="$(Q)" uv run python scripts/smoke.py
+
+memory-smoke:  ## Prove recall across two conversations (spends credits)
+	@uv run python scripts/memory_smoke.py
+
+deployed-memory-smoke:  ## Prove Agent Runtime recall across managed sessions
+	@uv run python scripts/deployed_memory_smoke.py
+
+deployed-action-smoke:  ## Prove agent → Firestore → private reviewer → status workflow
+	@uv run python scripts/deployed_action_smoke.py
+
+dashboard:  ## Run the Support Operations dashboard locally
+	@uv run uvicorn app.dashboard_app:app --host 127.0.0.1 --port $(PORT)
 
 eval:  ## Run the eval dataset (corpus must be up -- BUILD_PLAN 6.5)
 	@uv run python scripts/rag_corpus.py status | grep -q "^Corpus   : projects/" \

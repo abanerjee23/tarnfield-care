@@ -107,6 +107,7 @@ celerybeat.pid
 # Environments
 .env
 !.env.example
+.env.local
 .venv
 .venv*
 env/
@@ -203,6 +204,14 @@ my_env.tfvars
 .saved_chats
 .env
 .google-agents-cli/
+artifacts/
+
+# Local deployment state and operator-specific infrastructure values
+deployment_metadata.json
+deployment/terraform/single-project/vars/env.tfvars
+
+# Local assistant settings and hooks are not part of the product distribution
+.claude/
 
 # A2A Inspector
 tools/a2a-inspector/

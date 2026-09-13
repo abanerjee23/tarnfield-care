@@ -8,38 +8,59 @@ that are supposed to hold regardless of what the model says.
 from __future__ import annotations
 
 import pytest
+from google.adk.tools.agent_tool import AgentTool
 
-from app import config, fixtures, prompts, retrieval, tools
+from app import config, fixtures, prompts, retrieval, support_actions, tools
 from app.agents import build_root_agent
+
+
+@pytest.fixture(autouse=True)
+def _fresh_support_actions():
+    support_actions.set_store(support_actions.InMemorySupportActionStore())
+    yield
+    support_actions.reset_store()
 
 # --- BUILD_PLAN 2.2: control must return to the root ---------------------------
 
 
-def test_specialists_are_single_turn():
-    """The mode trap: the ADK default (chat) lets specialists talk to the
-    customer directly, which silently breaks 'the root owns the voice'."""
+def _specialists(root):
+    return [tool.agent for tool in root.tools if isinstance(tool, AgentTool)]
+
+
+def test_specialists_are_explicit_agent_tools():
+    """The root must receive specialist output before the A2A response is emitted."""
     root = build_root_agent()
-    assert root.sub_agents, "root has no specialists"
-    for sub in root.sub_agents:
-        assert sub.mode == "single_turn", (
-            f"{sub.name} is mode={sub.mode!r}; control would not return to the root"
-        )
+    assert [agent.name for agent in _specialists(root)] == [
+        "returns_exchanges",
+        "billing",
+    ]
+    assert all(agent.mode == "chat" for agent in _specialists(root)), (
+        "AgentTool creates a nested runner whose root agent must use chat mode"
+    )
+    assert not root.sub_agents, "transfer-based specialists can bypass the root voice"
 
 
 def test_root_uses_flash_and_specialists_use_pro():
     """BUILD_PLAN 2.10: the expensive model does the expensive thinking."""
     root = build_root_agent()
     assert root.model.model == config.ROOT_MODEL
-    for sub in root.sub_agents:
+    for sub in _specialists(root):
         assert sub.model.model == config.SPECIALIST_MODEL
 
 
 def test_specialist_descriptions_state_their_boundary():
     """The root routes on these, so 'does not' is what prevents misrouting."""
-    for sub in build_root_agent().sub_agents:
+    for sub in _specialists(build_root_agent()):
         assert "not" in sub.description.lower(), (
             f"{sub.name} description does not say what it will NOT handle"
         )
+
+
+def test_root_forbids_placeholder_reply_before_specialist_transfer():
+    """A friendly preamble can terminate the turn before any policy check occurs."""
+    assert "FIRST response must be the" in prompts.ROOT
+    assert "Text ends a turn" in prompts.ROOT
+    assert "Before you delegate, acknowledge" not in prompts.ROOT
 
 
 # --- BUILD_PLAN 2.4: retrieval scoping ----------------------------------------
@@ -120,6 +141,33 @@ def test_returns_and_billing_tools_have_disjoint_document_scopes():
     assert set(config.RETURNS_POLICY_DOCS).isdisjoint(config.BILLING_POLICY_DOCS)
 
 
+def test_returns_context_bundles_order_and_policy(monkeypatch):
+    monkeypatch.setattr(
+        tools, "search_returns_policy", lambda query: f"evidence: {query}"
+    )
+    context = tools.get_returns_context(
+        "Can I return these?", "TF-88213", _ToolCtx()
+    )
+    assert context["order"]["found"] is True
+    assert context["order"]["days_since_delivery"] == 7
+    assert "Solstice Edition" in context["policy_evidence"]
+    assert context["context_complete"] is True
+
+
+def test_billing_context_bundles_charge_events_and_policy(monkeypatch):
+    monkeypatch.setattr(
+        tools, "search_billing_policy", lambda query: "billing evidence"
+    )
+    context = tools.get_billing_context(
+        "Was I charged twice?", "TF-88402", "", _ToolCtx()
+    )
+    assert context["order"]["found"] is True
+    assert context["charges"]["found"] is True
+    assert context["charges"]["other_events"]
+    assert context["policy_evidence"] == "billing evidence"
+    assert context["context_complete"] is True
+
+
 # --- BUILD_PLAN 2.11: nothing completes without a human ------------------------
 
 
@@ -142,9 +190,23 @@ def test_request_tools_never_complete_an_action(tool_name):
     assert result["completed"] is False
     assert result["reference"].startswith("REQ-")
     assert "NOT been actioned" in result["tell_the_customer"]
-    filed = fixtures.filed_requests()
+    filed = support_actions.get_store().list()
     assert len(filed) == 1
-    assert filed[0]["human_decision"] is None, "agent must never mark a request approved"
+    assert filed[0]["status"] == "pending", "agent must never approve a request"
+
+
+def test_failed_support_action_write_never_returns_a_reference():
+    class BrokenStore:
+        def create(self, **_values):
+            raise RuntimeError("Firestore unavailable")
+
+    support_actions.set_store(BrokenStore())
+    result = tools.request_exchange(
+        "TF-88455", "same model and size", "Replace faulty shoes", _ToolCtx()
+    )
+    assert result["filed"] is False
+    assert result["reference"] is None
+    assert "not filed" in result["tell_the_customer"]
 
 
 def _tool_name(tool) -> str:
@@ -159,7 +221,7 @@ def test_no_tool_can_complete_an_action():
     forbidden = {"start_return", "issue_refund", "process_refund", "cancel_order"}
     assert not (every & forbidden)
 
-    READ_PREFIXES = ("search_", "lookup_", "check_", "load_")
+    READ_PREFIXES = ("search_", "lookup_", "check_", "load_", "get_")
     WRITE_PREFIXES = ("request_", "escalate_")
     unclassified = {
         n for n in every if not n.startswith(READ_PREFIXES + WRITE_PREFIXES)
@@ -179,7 +241,7 @@ def test_memory_is_readable_and_written():
     assert "preload_memory" in {_tool_name(t) for t in root.tools}, (
         "the root cannot read memory"
     )
-    for sub in root.sub_agents:
+    for sub in _specialists(root):
         assert not {_tool_name(t) for t in sub.tools} & {"load_memory", "preload_memory"}, (
             f"{sub.name} can read memory; only the root may"
         )
@@ -232,12 +294,52 @@ def test_unknown_order_does_not_invent_one():
     assert tools.lookup_order("TF-00000", _ToolCtx())["found"] is False
 
 
+def test_returns_context_bundles_order_and_scoped_policy(monkeypatch):
+    monkeypatch.setattr(tools, "search_returns_policy", lambda query: f"evidence: {query}")
+    context = tools.get_returns_context(
+        "Can I return these?", "TF-88213", _ToolCtx()
+    )
+    assert context["order"]["found"] is True
+    assert "Solstice Edition" in context["policy_evidence"]
+    assert "product-specific" in context["policy_evidence"]
+
+
+def test_billing_context_bundles_applicable_reads(monkeypatch):
+    monkeypatch.setattr(tools, "search_billing_policy", lambda query: "billing evidence")
+    context = tools.get_billing_context(
+        "Was I charged twice?", "TF-88402", "", _ToolCtx()
+    )
+    assert context["order"]["found"] is True
+    assert context["charges"]["found"] is True
+    assert context["invoice"]["provided"] is False
+    assert context["policy_evidence"] == "billing evidence"
+
+
+def test_specialists_expose_one_complete_context_tool_each():
+    returns = {_tool_name(tool) for tool in tools.RETURNS_TOOLS}
+    billing = {_tool_name(tool) for tool in tools.BILLING_TOOLS}
+    assert "get_returns_context" in returns
+    assert "get_billing_context" in billing
+    assert not returns & {"search_returns_policy", "lookup_order"}
+    assert not billing & {
+        "search_billing_policy",
+        "lookup_order",
+        "lookup_invoice",
+        "check_charges",
+    }
+
+
 # --- Instructions carry the rules the plan relies on ---------------------------
 
 
 def test_root_is_forbidden_from_changing_a_ruling():
     assert "own the tone" in prompts.ROOT
     assert "never invent an answer" in prompts.ROOT.lower()
+
+
+def test_root_must_preserve_policy_source():
+    assert "Source: <document name>" in prompts.ROOT
+    assert "policy answer without its source is incomplete" in prompts.ROOT
 
 
 def test_specialists_must_cite_and_may_refuse():

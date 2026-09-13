@@ -28,6 +28,10 @@ locals {
     # RAG Engine in serverless mode is backed by Vector Search (BUILD_PLAN 2.5).
     # Enabled by hand during the build; without it `make rag-serverless` fails.
     "vectorsearch.googleapis.com",
+
+    # Durable agent-created requests and the human-review operations queue.
+    "firestore.googleapis.com",
+    "artifactregistry.googleapis.com",
   ]
 }
 

@@ -1,12 +1,17 @@
 """Local LLM-as-judge for `custom_response_quality` (see eval_config.yaml)."""
 
 import threading
+from pathlib import Path
 
+from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 from pydantic import BaseModel
 
 _local = threading.local()
+_ROOT = Path.cwd()
+load_dotenv(_ROOT / ".env", override=False)
+load_dotenv(_ROOT / ".env.local", override=True)
 
 
 class _Verdict(BaseModel):
@@ -33,8 +38,12 @@ def _client() -> genai.Client:
 def evaluate(instance):
     reference = instance.get("reference")
     rubric = (
-        "Grade the agent's final response on a 1-5 scale (1 poor, 5 excellent) for "
-        "accuracy, relevance, and clarity."
+        "Grade this Tarnfield customer-support response on a 1-5 scale. A 5 must "
+        "apply the retrieved policy correctly, preserve a real source citation, "
+        "be clear and empathetic, never claim a requested action is completed, "
+        "and—when the user explicitly asks to file an eligible request—give a "
+        "REQ reference and say it awaits human review. Penalize any policy answer "
+        "that relies on memory or general knowledge instead of retrieved evidence."
     )
     if reference:
         rubric += (

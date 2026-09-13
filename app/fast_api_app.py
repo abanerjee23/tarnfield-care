@@ -17,7 +17,6 @@ import os
 from collections.abc import AsyncIterator
 
 from a2a.server.tasks import InMemoryTaskStore
-from dotenv import load_dotenv
 from fastapi import FastAPI
 from google.adk.cli.fast_api import get_fast_api_app
 from google.adk.runners import Runner
@@ -27,8 +26,8 @@ from app.app_utils.a2a import attach_a2a_routes
 from app.app_utils.reasoning_engine_adapter import (
     attach_reasoning_engine_routes,
 )
+from app.dashboard_api import router as dashboard_router
 
-load_dotenv()
 allow_origins = (
     os.getenv("ALLOW_ORIGINS", "").split(",") if os.getenv("ALLOW_ORIGINS") else None
 )
@@ -76,6 +75,7 @@ app: FastAPI = get_fast_api_app(
 )
 app.title = "customer-chatbot-rag"
 app.description = "API for interacting with the Agent customer-chatbot-rag"
+app.include_router(dashboard_router)
 
 # Proxy routes so the Vertex AI Console Playground (reasoning_engine SDK) can
 # talk to this agent alongside the native adk_api routes.
