@@ -47,3 +47,15 @@ variable "app_sa_roles" {
     "roles/serviceusage.serviceUsageConsumer",
   ]
 }
+
+variable "reasoning_engine_sa_roles" {
+  description = <<-EOT
+    Roles for the Agent Runtime (Reasoning Engine) service agent, which executes
+    the deployed agent. aiplatform.user is what lets it query the RAG corpus;
+    without it retrieval silently returns nothing. See iam.tf.
+  EOT
+  type        = list(string)
+  default = [
+    "roles/aiplatform.user",
+  ]
+}

@@ -24,6 +24,10 @@ locals {
     "logging.googleapis.com",
     "cloudtrace.googleapis.com",
     "telemetry.googleapis.com",
+
+    # RAG Engine in serverless mode is backed by Vector Search (BUILD_PLAN 2.5).
+    # Enabled by hand during the build; without it `make rag-serverless` fails.
+    "vectorsearch.googleapis.com",
   ]
 }
 

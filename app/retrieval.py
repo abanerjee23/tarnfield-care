@@ -105,6 +105,12 @@ def _resolve_corpus() -> str | None:
                 _corpus_name = corpus.name
                 return _corpus_name
     except Exception:
+        logger.exception(
+            "Could not list RAG corpora in project %r (%s); treating the corpus "
+            "as unavailable.",
+            config.PROJECT_ID,
+            config.RAG_CORPUS_LOCATION,
+        )
         return None
     return None
 
@@ -135,6 +141,7 @@ def search(query: str, allowed_documents: list[str], top_k: int = 5) -> str:
             query=ap.RagQuery(text=query, similarity_top_k=top_k),
         )
     except Exception:
+        logger.exception("Corpus retrieval failed for query %r on %s.", query, corpus)
         return CORPUS_UNAVAILABLE
 
     kept, dropped, far = [], 0, 0

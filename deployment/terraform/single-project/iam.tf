@@ -70,3 +70,26 @@ resource "google_project_iam_member" "vertex_ai_sa_permissions" {
   depends_on = [resource.google_project_service.services]
 }
 
+
+
+# Grant the Agent Runtime (Reasoning Engine) service agent the roles the deployed
+# agent needs at run time.
+#
+# This is a DIFFERENT identity to google_project_service_identity.vertex_sa above.
+# That one is the general Vertex AI service agent (gcp-sa-aiplatform); the account
+# that actually executes a deployed agent is the Reasoning Engine service agent
+# (gcp-sa-aiplatform-re). Google creates it with roles/aiplatform.reasoningEngineServiceAgent,
+# which carries NO RAG permissions -- so the deployed agent authenticated fine,
+# ran fine, and every policy lookup came back empty. It was the last of four
+# deploy failures, and it was granted by hand rather than declared here.
+#
+# There is no service-identity resource for this agent, so the member is built
+# from the project number directly.
+resource "google_project_iam_member" "reasoning_engine_sa_roles" {
+  for_each = toset(var.reasoning_engine_sa_roles)
+
+  project    = var.project_id
+  role       = each.value
+  member     = "serviceAccount:service-${data.google_project.project.number}@gcp-sa-aiplatform-re.iam.gserviceaccount.com"
+  depends_on = [resource.google_project_service.services]
+}
