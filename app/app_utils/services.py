@@ -28,6 +28,8 @@ from google.adk.artifacts import GcsArtifactService, InMemoryArtifactService
 from google.adk.cli.service_registry import get_service_registry
 from google.adk.cli.utils.service_factory import create_session_service_from_options
 
+from app import config
+
 SESSION_SERVICE_URI = "shared://session"
 ARTIFACT_SERVICE_URI = "shared://artifact"
 
@@ -46,8 +48,11 @@ def get_session_service():
     if agent_engine_id := os.environ.get("GOOGLE_CLOUD_AGENT_ENGINE_ID"):
         from google.adk.sessions.vertex_ai_session_service import VertexAiSessionService
 
+        # config.PROJECT_ID, not the env var: Agent Runtime strips
+        # GOOGLE_CLOUD_PROJECT from the deployed environment, so reading it
+        # directly yields None here. Same trap that broke retrieval on deploy.
         return VertexAiSessionService(
-            project=os.environ.get("GOOGLE_CLOUD_PROJECT"),
+            project=config.PROJECT_ID,
             # Runtime-injected agent-engine region, not GOOGLE_CLOUD_LOCATION
             # (which agent.py pins to "global").
             location=os.environ.get("GOOGLE_CLOUD_AGENT_ENGINE_LOCATION")
@@ -89,7 +94,7 @@ def get_memory_service():
         )
 
         return VertexAiMemoryBankService(
-            project=os.environ.get("GOOGLE_CLOUD_PROJECT"),
+            project=config.PROJECT_ID,  # see get_session_service
             location=os.environ.get("GOOGLE_CLOUD_AGENT_ENGINE_LOCATION")
             or os.environ.get("GOOGLE_CLOUD_LOCATION"),
             agent_engine_id=agent_engine_id,
