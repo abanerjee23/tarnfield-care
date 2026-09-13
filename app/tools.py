@@ -15,7 +15,6 @@ from __future__ import annotations
 from typing import Any
 
 from google.adk.tools import ToolContext
-from google.adk.tools.load_memory_tool import load_memory_tool
 
 from app import config, fixtures, retrieval
 
@@ -169,6 +168,16 @@ def remember_contact_details(method: str, detail: str,
 def _file(kind: str, order_id: str, summary: str, ctx: ToolContext,
           **details: Any) -> dict[str, Any]:
     record = fixtures.file_request(kind, order_id.upper(), summary, details)
+
+    # A customer can file more than one thing in a conversation -- a return AND
+    # a billing adjustment is an ordinary pair. A single key silently dropped
+    # the earlier reference, leaving the customer holding a number nobody could
+    # look up. Keep them all; keep the latest separately for the reply.
+    refs = list(ctx.state.get("user:open_request_refs") or [])
+    refs.append(
+        {"reference": record["reference"], "kind": kind, "order_id": record["order_id"]}
+    )
+    ctx.state["user:open_request_refs"] = refs
     ctx.state["user:open_request_ref"] = record["reference"]
     return {
         "filed": True,
@@ -253,15 +262,26 @@ def escalate_to_human(topic: str, summary: str, tool_context: ToolContext) -> di
     return _file("escalation", "n/a", summary, tool_context, topic=topic)
 
 
-# `load_memory` searches what was said in EARLIER conversations (BUILD_PLAN 2.8).
-# It is deliberately the last tool listed: it supplies context to reason with,
-# never a determination. The specialists' instructions state that the policy
-# outranks anything memory returns, and there is an eval case for exactly the
-# case where the two disagree.
-ROOT_TOOLS = [remember_contact_details]
+# Memory belongs to the root, and ONLY to the root (BUILD_PLAN 2.8).
+#
+# Specialists used to carry `load_memory`. Testing showed they never called it:
+# the cue that should trigger recall ("it's me again") reaches the root, which
+# sees the customer's words, while the specialist receives a delegated task.
+# Instructions telling them when to call it described behaviour that never
+# happened.
+#
+# Removing it is the safer resolution rather than merely the tidier one. Memory
+# may never decide a ruling, and the specialist is the only agent that makes
+# one. Keeping customer history out of the agent that rules on policy makes the
+# hierarchy structural instead of merely instructed. The root still has
+# preloaded memory, which is where personalisation belongs.
+#
+# The root also gets `escalate_to_human`: it is the only agent the customer
+# talks to, and questions arrive that belong to neither specialist ("where is
+# my parcel?"). Without it the root could only misroute or answer ungrounded.
+ROOT_TOOLS = [remember_contact_details, escalate_to_human]
 
 RETURNS_TOOLS = [search_returns_policy, lookup_order, request_return,
-                 request_exchange, escalate_to_human, load_memory_tool]
+                 request_exchange, escalate_to_human]
 BILLING_TOOLS = [search_billing_policy, lookup_order, lookup_invoice,
-                 check_charges, request_billing_adjustment, escalate_to_human,
-                 load_memory_tool]
+                 check_charges, request_billing_adjustment, escalate_to_human]

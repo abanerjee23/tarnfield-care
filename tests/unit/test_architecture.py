@@ -168,16 +168,46 @@ def test_no_tool_can_complete_an_action():
 
 
 def test_memory_is_readable_and_written():
-    """Memory must be both read and written, or it is half a feature:
-    load_memory on the specialists, a callback that saves (BUILD_PLAN 2.8)."""
+    """Memory must be both read and written, or it is half a feature, and it
+    must be readable ONLY by the root (BUILD_PLAN 2.8).
+
+    Specialists are deliberately memory-free: they are the agents that make a
+    ruling, and memory may never decide one. Keeping history away from them
+    makes the hierarchy structural rather than merely instructed.
+    """
     root = build_root_agent()
+    assert "preload_memory" in {_tool_name(t) for t in root.tools}, (
+        "the root cannot read memory"
+    )
     for sub in root.sub_agents:
-        assert "load_memory" in {_tool_name(t) for t in sub.tools}, (
-            f"{sub.name} cannot read memory"
+        assert not {_tool_name(t) for t in sub.tools} & {"load_memory", "preload_memory"}, (
+            f"{sub.name} can read memory; only the root may"
         )
     assert root.after_agent_callback is not None, (
-        "nothing writes to memory; load_memory would search an empty store"
+        "nothing writes to memory; recall would search an empty store"
     )
+
+
+def test_root_can_escalate_off_domain_questions():
+    """The root is the only agent the customer talks to, and questions arrive
+    that belong to neither specialist. Without an escape hatch its only options
+    are to misroute or to answer ungrounded (BUILD_PLAN 2.11)."""
+    root = build_root_agent()
+    assert "escalate_to_human" in {_tool_name(t) for t in root.tools}
+
+
+def test_filing_two_requests_keeps_both_references():
+    """A return AND a billing adjustment is an ordinary pair. A single state key
+    dropped the earlier reference, leaving the customer holding a number nobody
+    could look up (BUILD_PLAN 2.12)."""
+    ctx = _ToolCtx()
+    first = tools.request_return("TF-88213", "faulty sole", "Return, faulty", ctx)
+    second = tools.request_billing_adjustment(
+        "TF-88213", "charged twice", "Refund one charge", ctx
+    )
+    kept = [r["reference"] for r in ctx.state["user:open_request_refs"]]
+    assert kept == [first["reference"], second["reference"]]
+    assert ctx.state["user:open_request_ref"] == second["reference"]
 
 
 # --- Dates are software, not model work (BUILD_PLAN 1) ------------------------

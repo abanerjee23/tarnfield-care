@@ -399,6 +399,12 @@ the policy.
    delegated task. So recall moved to the root, where it runs on every request and **cannot be
    forgotten by the model.** Recall then worked: a second conversation referred back to a fit
    problem raised in the first.
+
+   **Specialists have since had memory removed entirely**, which is the safer resolution rather
+   than merely the tidier one. The specialist is the only agent that makes a ruling, and memory
+   may never decide one. Keeping customer history away from the agent that rules on policy makes
+   the top row of this table **structural rather than merely instructed** — it is no longer a
+   rule the model could fail to follow. Personalisation stays with the root, where it belongs.
 3. **Memory then made the root stop delegating.** With earlier conversations loaded, the root
    answered a policy question directly — quoting a 14-day rule out of remembered text instead of
    asking a specialist for a fresh ruling. Plausible, ungrounded, and exactly the failure this
@@ -519,6 +525,13 @@ what produces the evidence that would justify removing a gate.
   product surface, not a fallback** — the customer needs a reference number, a clear statement of
   what was requested, and an expectation of when they will hear back. Done badly it reads as the
   bot failing.
+
+  > **Found in review: the root could not escalate.** Only specialists held the tool, so a
+  > question belonging to neither domain — *"where is my parcel?"*, *"do you have these in a
+  > 9?"* — left the only agent that talks to the customer with two options: force it into Returns
+  > or Billing, or answer it ungrounded. **Guessing about stock is the same failure as guessing
+  > about a refund; it is just cheaper when it is wrong.** The root now escalates, and its
+  > instructions say to do that rather than force a fit.
 - **Latency and staff load.** A human in every loop is the slow, expensive path. Accepted for v1
   deliberately.
 - **It changes what we measure.** Success is no longer "did the action complete" but "was the
@@ -546,7 +559,13 @@ stay in step.
 
 **What it costs us.** Writes are not durable. A filed request leaves nothing behind after a
 restart. **The reference number a customer is given is currently not resolvable by anyone** — it
-goes to an in-process list that nothing reads. That matters less than it would before 2.11, since
+goes to an in-process list that nothing reads.
+
+> **Found in review: a second request erased the first reference.** Customer state held one
+> reference number, so a customer filing a return *and* a billing adjustment — an ordinary pair —
+> was given two numbers of which only the later one was remembered. Every reference is now kept,
+> and the root is told to give all of them. This narrows the gap; it does not close it, because
+> the list still lives only in the conversation. That matters less than it would before 2.11, since
 the record that counts is the one the human reviewer works from, outside this system either way.
 Correct for a demo, wrong for production. It is where 2.15 should land, and 2.15 is not built.
 
@@ -663,6 +682,7 @@ flowchart LR
         SB["search_billing_policy<br/>scoped: billing"]
         LK["lookup_order · lookup_invoice<br/>read-only, ungated"]
         RQ["request_return · request_exchange<br/>request_billing_adjustment<br/>files it, never acts"]
+        ESC["escalate_to_human<br/>the root's third path"]
     end
 
     subgraph DATA["Google Cloud"]
@@ -678,6 +698,8 @@ flowchart LR
     HUM(["Human reviewer"])
 
     C <-->|"question ⇄ cited answer"| R
+    R --> ESC
+    ESC -->|"reference no."| HUM
     R <-->|"delegate ⇄ ruling"| RE
     R <-->|"delegate ⇄ ruling"| BI
 
@@ -707,7 +729,7 @@ flowchart LR
     classDef human fill:#FCE8E6,stroke:#C5221F,color:#8C1D18
     classDef todo fill:#F3F3F3,stroke:#9AA0A6,color:#5F6368,stroke-dasharray: 4 3
     class R,RE,BI agent
-    class SR,SB,LK,RQ tool
+    class SR,SB,LK,RQ,ESC tool
     class RAG,SESS,MEM svc
     class AIS,FIX ext
     class C,HUM human

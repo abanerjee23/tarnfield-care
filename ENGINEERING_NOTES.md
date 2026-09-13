@@ -54,8 +54,14 @@ The cue reaches the **root** — it sees the customer's words. The specialist re
 task, not the customer's phrasing. So the root carries `preload_memory_tool`, which runs on every
 request, cannot be forgotten by the model, and costs no extra round trip.
 
-Specialists keep `load_memory_tool` in their tool lists for the case where they need it
-explicitly, but recall no longer depends on them calling it.
+**Specialists have since had `load_memory_tool` removed entirely.** Unused wiring plus
+instructions describing behaviour that never happened is worse than neither. The deciding
+argument is not tidiness: the specialist is the only agent that issues a ruling, and BUILD_PLAN
+2.8 says memory may never decide one. Removing the tool makes that structural instead of
+instructed.
+
+Asserted both ways in `tests/unit/test_architecture.py`: the root must have `preload_memory`, and
+neither specialist may have any memory tool.
 
 ### Optional state placeholders
 
@@ -279,7 +285,10 @@ comparison.
 - **Request refs** — `REQ-{secrets.token_hex(3).upper()}`, generated in `app/fixtures.py`.
 
 **Request refs currently go to an in-process Python list.** Nothing reads it, nothing persists
-it, and a container restart loses it. The reference number given to a customer is not resolvable
+it, and a container restart loses it. Customer state keeps the full list for the conversation
+(`user:open_request_refs`, plus `user:open_request_ref` for the most recent), which is what stops
+a second request erasing the first reference — but that is session state, not a record anyone can
+look up. The reference number given to a customer is not resolvable
 by anyone. Fine for a demo; it is the open gap behind BUILD_PLAN's escalation path, and the
 `case_outcome` table (2.15) is where it should land.
 
@@ -292,7 +301,9 @@ evals.
 
 - `case_outcome` → BigQuery (BUILD_PLAN 2.15) is **designed and not built.** No dataset exists in
   the project. Human override rate is unmeasurable until it does.
-- Request refs are not persisted (§8).
+- Request refs are not persisted (§8). Every reference filed in a conversation is now kept in
+  `user:open_request_refs` rather than one key being overwritten, but that list still lives only
+  in session state.
 - `MEMORY_BACKEND` is still set on the live deployment. It is dead config — nothing reads it —
   and clears on the next deploy.
 - Latency is unaddressed: 22.9s on the deployed final-sale test, 4.5–40s observed locally,

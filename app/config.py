@@ -80,7 +80,9 @@ def _resolve_project() -> str:
 
         _, project = google.auth.default()
         return project or ""
-    except Exception:  # noqa: BLE001 - absence is handled by callers
+    # Absence is handled by callers: an empty project id degrades retrieval to
+    # its "corpus unavailable" path rather than crashing a customer turn.
+    except Exception:
         return ""
 
 
