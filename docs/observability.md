@@ -1,31 +1,27 @@
 # Automatic Arize AX tracing
 
-The application uses Arize AX, the hosted Arize AI product, with the supported
-OpenInference Google ADK instrumentor. Normal ADK execution generates the trace
-tree: root and specialist agent runs, model requests, tool calls, timings, token
-counts and errors. Application code does not construct traces or duplicate each
-tool's logging. Galileo dependencies and local settings have been removed.
+The application uses hosted Arize AX with automatic OpenInference Google ADK
+instrumentation. It records agent execution, model usage, timings and errors.
+Application code does not manually duplicate model/tool spans.
 
 ## Product and operational purpose
 
-Trace the work behind a customer answer so a failed turn can be attributed to
-routing, retrieval, model latency, delivery or action persistence. Follow a slow
-model/tool span into its parent turn; use Firestore and its audit history to
-establish whether a support request was actually persisted or reviewed.
+Use traces to investigate slow or failed answers, alongside retrieval and memory
+logs. Retrieval and memory now run in callbacks; do not assume every callback
+operation appears as its own tool span. Verify that coverage on the current path.
 
 | Evidence source | What it establishes | Limit |
 |---|---|---|
-| Arize AX automatic traces | Agent/model/tool execution, timing, usage and sanitized error metadata | An OK trace does not prove the answer was correct |
-| Cloud Logging/Trace | Deployment, serving and native cloud diagnostics | Native content capture is separately configured |
-| Firestore action/audit records | Stored request state and reviewer-reported changes | No payment or fulfilment integration executes the action |
-| Local evaluation reports | Explicit case outputs and custom-judge grades | Two development cases are not broad quality coverage |
+| Arize automatic traces | Execution, timing, usage and sanitised errors | An OK trace does not establish answer quality |
+| Cloud Logging/Trace | Serving and infrastructure diagnostics | Native capture is separately configured |
+| Offline Arize calibration | Recorded agreement with eight known human-labelled answers | Held-out judge validation and fresh agent-output evaluation are pending |
+| Deterministic checks | Application and privacy boundary behaviour | Test counts are not customer quality scores |
 
-This integration uses hosted **Arize AX**, not a Phoenix collector. Hosted Arize
-evaluators, experiments, score uploads, online quality jobs and alert thresholds
-are not configured. The custom Gemini judge remains outside the ADK instrumentor;
-its grading calls and scores are not automatically exported. See
-[evaluation and trace correlation](evaluation.md#relationship-to-automatic-arize-ax-traces)
-and [cost accounting](costs.md).
+Arize is the chosen workspace for tracing and offline evaluation. The
+[evaluation log](ai-evals.md) records three manually configured judges; their
+configuration and result exports are not checked in. Online evaluations,
+automated experiment uploads, score-to-trace joins and alerts are not configured.
+The legacy CLI judge runs outside the ADK trace integration.
 
 ## Configuration
 
@@ -94,16 +90,19 @@ acceptance without a model bill; it is a transport and instrumentation check,
 not an agent-quality evaluation. Add `--real` only for a live-model check. The
 real mode runs one unchanged root-agent final-sale question against the live
 Gemini and RAG clients using an isolated local session. It spends model credits.
-The check reports automatically generated AGENT, LLM and TOOL spans and actual
-OTLP exporter acceptance. A flush returning successfully alone is not proof of
+The deterministic fixture reports automatic AGENT, LLM and TOOL spans and
+OTLP exporter acceptance. The current policy agent has no model-invoked tools;
+do not assume the legacy `--real` span expectations validate its callback path. A flush returning successfully alone is not proof of
 collector acceptance.
 
 In Arize, open the configured space, select `tarnfield-customer-bot`, and look for
 the smoke run's trace ID. Expand the trace to verify agent, model and tool spans.
 Allow for ingestion delay. A locally visible trace proves local instrumentation;
-a new chat through the local frontend against the deployed agent must be checked
-separately after rollout. The customer frontend is not currently publicly hosted;
+the current local single-agent path with managed state needs its own trace/privacy
+verification, followed by a fresh deployed-path check after rollout. The customer frontend is not currently publicly hosted;
 the private Cloud Run link belongs to the reviewer dashboard.
+
+## Historical verification: earlier multi-agent deployment
 
 Verification on 1 October 2026: the live model/RAG smoke completed in 19.294
 seconds. Its trace `0ed1a33c31cb40b27ef0f441abbf1cc1` contained ten automatic
@@ -175,7 +174,7 @@ an anonymous 403 is expected and is separate from agent tracing health.
 | Cloud trace exists but Arize trace is missing | Check Arize export initialization/configuration; native Cloud spans alone do not establish AX delivery |
 | Duplicate token or cost totals | Count OpenInference LLM spans once; confirm only `openinference.instrumentation.google_adk` reaches Arize |
 | Long customer turn | Read root duration and slow model/tool spans; do not add inclusive parent/child durations |
-| A model response appears safe but a request is missing | Inspect persistence result and Firestore audit records; a fluent reply is not storage proof |
+| A policy answer lacks usable evidence | Inspect retrieval status and citation validation; a fluent answer is not evidence of support |
 | Content appears in an export | Keep capture off, inspect outbound sanitized copies and error/event/status/link fields; review native Google capture independently |
 | Exporter fails during customer traffic | Inspect warnings and acceptance counters; buffered export avoids per-turn collector waits, but delivery can still fail |
 
@@ -185,8 +184,7 @@ delivery is buffered and is not a guarantee of lossless collection after an
 abrupt process failure.
 
 Before public traffic, assign owners and thresholds for export loss, model/API
-errors, latency, token/cost changes, retrieval failure, action-write failure,
-overdue review and policy freshness. Establish retention, access, consent and
+errors, latency, token/cost changes, retrieval failure, memory failures and policy freshness. Establish retention, access, consent and
 deletion procedures in both Arize and native Cloud telemetry. Those controls
 remain open; the migration did not configure them automatically.
 

@@ -23,7 +23,19 @@ show “Referenced policy” rather than imply their evidence was validated anew
 
 ## Run locally
 
+Use Python 3.11–3.13, `uv`, and Node.js 20.9 or later (Node 22 is suitable).
 Install dependencies with `uv sync --locked` and `npm --prefix frontend ci`.
+
+For a fresh checkout, copy `.env.example` to `.env` and `.env.local.example` to
+`.env.local` without overwriting existing configuration. Set the Google project
+and corpus settings in `.env`, and the Gemini key in `.env.local`. Keep Arize
+disabled unless its space and key are configured. Authenticate Google ADC with
+`gcloud auth application-default login`, then check `make rag-status`. Creating
+or importing a corpus uses cloud resources; `make rag-up` ingests the demonstration
+PDFs when needed. See [deployment](deployment.md) for managed state configuration.
+
+The frontend defaults match the local gateway. Use `frontend/.env.example` as a
+reference for server-only overrides when changing them.
 Run `make chat-gateway` and `make chat-ui` in separate terminals.
 Use the exact origin `http://127.0.0.1:3010`; localhost is a different origin.
 
@@ -38,8 +50,19 @@ Match `CHAT_PUBLIC_ORIGIN` and `GATEWAY_ALLOWED_ORIGINS` when changing origin.
 
 ## Verification and release
 
-30 frontend tests, TypeScript checks and the production build passed on
-4 October 2026. See [build report](build-report.md) for end-to-end evidence.
+Use the supported Node version and an unused integration-server port:
+
+```bash
+uv run pytest tests/unit tests/integration
+npm --prefix frontend test
+npm --prefix frontend run typecheck
+npm --prefix frontend run build
+```
+
+For isolated Python verification, use a clean checkout without local `.env`
+overrides, disable Arize export and set `TEST_SERVER_PORT` to an unused port.
+Local secret overrides can otherwise enable tracing during instrumentation tests.
+See [build report](build-report.md) for dated results and end-to-end evidence.
 
 Public hosting still requires identity/ownership decisions, privacy controls,
 distributed request coordination, abuse limits, calibrated quality evaluations,

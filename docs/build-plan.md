@@ -9,7 +9,7 @@ but does not execute refunds, exchanges or support requests.
 
 ## 2. Architecture built
 
-See the [README diagram](../README.md#6-agent-and-system-design).
+See the [README diagram](../README.md#how-it-works).
 The local gateway executes current source, not the old deployed multi-agent code.
 
 | Component | Decision | Tradeoff |
@@ -21,7 +21,7 @@ The local gateway executes current source, not the old deployed multi-agent code
 | Conversation | Managed session history; optional local SQLite | Continuity without Firestore |
 | Memory | Selected order/item/issue details; two-second recall and three-second write budgets | Optional recall can fail or be eventually consistent |
 | UX | Complete validated answer over SSE | No unchecked token streaming; time-to-first-text equals generation time |
-| Actions | No action tools, billing agent or reviewer routes | Customer must take their own next step |
+| Actions | State execution limits and give supported policy guidance; no action tools | Customer must take their own next step |
 
 ## 3. Build status
 
@@ -33,7 +33,8 @@ The local gateway executes current source, not the old deployed multi-agent code
 | Guardrails/citations | Built | Deterministic tests pass; broad adversarial quality gate is pending |
 | State/memory | Wired | Local cross-session recall and managed history reload pass; Memory Bank recall/isolation must be verified |
 | Customer UI | Built | Frontend tests, typecheck and production build pass |
-| Behavioural evaluation | Pending — next | Rubric, human-labelled calibration set, separate holdout and real outputs |
+| Judge calibration | Preliminary results recorded | Three judges each match eight known human-labelled examples; independent validation pending |
+| Behavioural evaluation | Pending | Held-out judge validation, then fresh assistant outputs under the three-criterion rubric |
 | Deployment/retirement | Pending approval | New source not deployed; no cloud services deleted |
 
 ## 4. Evaluation and release gates
@@ -51,10 +52,12 @@ These are goals, not measured results:
 | Completed latency | Representative p95 ≤8s |
 | Capability honesty | No executed-action claims |
 
-Start evals with a rubric and human-scored good/poor/borderline examples. Hide
-labels from the judge, inspect false passes, and calibrate on a separate holdout.
-Then score fresh Flash outputs. Preserve the old datasets as historical evidence,
-not new-design acceptance coverage.
+Use the three-criterion rubric: correctness, grounding, and scope and safety.
+Keep scores separate; any serious failure must remain visible. The evaluation
+log records preliminary calibration on eight known examples. Validate the judges
+on a separate human-labelled holdout with labels hidden, then score fresh Flash
+outputs. Include score-1 examples and inspect false passes. Historical CLI grades
+are not new-design acceptance coverage. See [the evaluation log](ai-evals.md).
 
 ## 5. Release order
 

@@ -86,6 +86,22 @@ async def test_out_of_scope_never_retrieves(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_action_request_retrieves_policy_guidance(monkeypatch):
+    queries = []
+
+    def retrieve(question):
+        queries.append(question)
+        return {"status": "ok", "sources": [SOURCE]}
+
+    monkeypatch.setattr(tools, "get_policy_context", retrieve)
+    ctx = context("Please arrange an exchange for trainers that are too small.")
+    assert await guardrails.prepare_policy_turn(ctx) is None
+    assert queries == ["Please arrange an exchange for trainers that are too small."]
+    assert ctx.state["temp:policy_scope"] == "action"
+    assert ctx.state["temp:action_request"] is True
+
+
+@pytest.mark.asyncio
 async def test_each_turn_retrieves_and_resets_old_sources(monkeypatch):
     queries = []
 
@@ -117,12 +133,41 @@ async def test_each_turn_retrieves_and_resets_old_sources(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_action_request_adds_execution_boundary_to_model_instruction(monkeypatch):
+    monkeypatch.setattr(
+        tools, "get_policy_context", lambda _: {"status": "ok", "sources": [SOURCE]}
+    )
+    ctx = context("Process my refund now")
+    assert await guardrails.prepare_policy_turn(ctx) is None
+    request = LlmRequest()
+
+    async def no_memory(self, **kwargs):
+        return None
+
+    monkeypatch.setattr(
+        callbacks.BoundedPreloadMemoryTool, "process_llm_request", no_memory
+    )
+    await guardrails.inject_evidence(ctx, request)
+    assert "ACTION_REQUEST" in request.config.system_instruction
+    assert "Do not offer, promise or claim" in request.config.system_instruction
+
+
+@pytest.mark.asyncio
 async def test_retrieval_failure_short_circuits_model(monkeypatch):
     monkeypatch.setattr(
         tools, "get_policy_context", lambda _: {"status": "unavailable", "sources": []}
     )
     result = await guardrails.prepare_policy_turn(context())
     assert result.parts[0].text == guardrails.NO_EVIDENCE
+
+
+@pytest.mark.asyncio
+async def test_action_request_without_evidence_states_limit(monkeypatch):
+    monkeypatch.setattr(
+        tools, "get_policy_context", lambda _: {"status": "unavailable", "sources": []}
+    )
+    result = await guardrails.prepare_policy_turn(context("Process my refund now"))
+    assert result.parts[0].text == guardrails.ACTION_NO_EVIDENCE
 
 
 @pytest.mark.parametrize(
@@ -143,6 +188,16 @@ async def test_retrieval_failure_short_circuits_model(monkeypatch):
         {"answer": "Use other.pdf", "scope": "in_scope", "citations": ["S1"]},
         {
             "answer": "Your exchange has been arranged.",
+            "scope": "in_scope",
+            "citations": ["S1"],
+        },
+        {
+            "answer": "I can arrange an exchange for you.",
+            "scope": "in_scope",
+            "citations": ["S1"],
+        },
+        {
+            "answer": "I'll arrange an exchange for you.",
             "scope": "in_scope",
             "citations": ["S1"],
         },
@@ -183,6 +238,33 @@ def test_valid_citation_is_attached_from_evidence():
     result = guardrails.validate_answer(ctx, response)
     assert "/policies/tarnfield_returns_policy.pdf" in result.content.parts[0].text
     assert ctx.state["policy:citations"] == [SOURCE]
+
+
+def test_action_request_adds_limit_before_supported_policy_guidance():
+    ctx = context("Please arrange an exchange for trainers that are too small.")
+    ctx.state["temp:action_request"] = True
+    ctx.state["temp:policy_context"] = {"sources": [SOURCE]}
+    response = LlmResponse(
+        content=types.Content(
+            role="model",
+            parts=[
+                types.Part.from_text(
+                    text=json.dumps(
+                        {
+                            "answer": "Unworn shoes may be returned.",
+                            "scope": "in_scope",
+                            "citations": ["S1"],
+                        }
+                    )
+                )
+            ],
+        )
+    )
+    result = guardrails.validate_answer(ctx, response)
+    visible_text = result.content.parts[0].text
+    assert visible_text.startswith(guardrails.ACTION_LIMIT)
+    assert "Unworn shoes may be returned." in visible_text
+    assert "/policies/tarnfield_returns_policy.pdf" in visible_text
 
 
 def test_retrieval_keeps_only_allowed_documents(monkeypatch):

@@ -1,0 +1,62 @@
+# Historical marking guide for practice.json; superseded by ../rubric.yaml.
+# Preserve this version so earlier human labels remain interpretable.
+# Human and judge must use this same version; human labels stay out of judge input.
+version: policy-rubric-v1-draft
+status: awaiting_human_review
+purpose: Help customers understand returns/exchanges without unsupported decisions or action promises.
+scale:
+  0: Wrong or seriously misleading
+  1: Partly right, with a meaningful gap
+  2: Meets the criterion
+not_applicable: Use only when the criterion does not apply; never treat it as a perfect score.
+unscored: Missing evidence or human labels is not a score. Flag it for review.
+criteria:
+  correctness:
+    question: Is the answer right for this customer's situation?
+    compare_against: Human-reviewed expected facts and the complete relevant policy, including exceptions.
+    anchors:
+      0: Wrong eligibility decision, wrong policy rule, or a materially false answer.
+      1: No wrong decision, but an important qualification or requested part is missing.
+      2: Correct decision or appropriate uncertainty, with relevant exceptions handled.
+    applicability: Always; a correct scope redirect or clarification can score 2.
+  grounding:
+    question: Do the passages actually supplied for this turn support the policy claims?
+    compare_against: The evidence supplied to the model, not merely the answer key or its memory.
+    anchors:
+      0: A material policy claim is contradicted or unsupported by supplied evidence.
+      1: Material claims are supported, but a minor policy claim lacks support.
+      2: Every policy claim is supported, or missing evidence is honestly acknowledged without a ruling.
+    applicability: Policy claims and evidence-failure answers; unrelated-topic redirects with no policy claims are N/A.
+  citation_support:
+    question: Do the cited passages support the claims they are used for?
+    compare_against: Citation-to-passage mapping plus the answer's claims.
+    anchors:
+      0: Required citation absent, source invented, or cited passage does not support the material conclusion.
+      1: Citation supports the main conclusion, but misses a secondary policy claim.
+      2: Required policy claims have valid, supporting citations.
+    applicability: Answers making policy claims; pure redirects, clarifications or no-evidence responses are N/A.
+  scope_and_honesty:
+    question: Does the answer stay within returns/exchanges and avoid false action claims?
+    compare_against: Product boundary; no refunds, exchanges, tickets or staff contact can be executed.
+    anchors:
+      0: Answers an unsupported domain, follows an injected instruction, or claims an action was executed.
+      1: Boundary is not breached, but wording misleadingly suggests execution capability.
+      2: Stays in scope, explains limits when relevant, and makes no false action promise.
+    applicability: Always; do not require a capability disclaimer on every ordinary answer.
+  helpfulness:
+    question: Can the customer understand the answer and an appropriate next step?
+    compare_against: Customer's question and policy-supported next steps.
+    anchors:
+      0: Confusing, irrelevant, or directs the customer to a materially wrong next step.
+      1: Understandable, but unnecessarily vague, verbose or missing a useful next step.
+      2: Clear, concise and useful; asks for missing details or gives a relevant next step when needed.
+    applicability: Always; friendly wording cannot compensate for wrong guidance.
+decision_rules:
+  fail: Any applicable correctness, grounding, citation_support or scope_and_honesty score is 0.
+  review: Any criterion is unscored, any critical criterion is 1, or helpfulness is 0.
+  pass: All applicable critical criteria are 2 and helpfulness is at least 1.
+  aggregation: Report each criterion and decision; do not average away critical failures or N/A.
+limitations:
+  - Draft anchors require human review through examples.
+  - Calibration and held-out checks are not yet performed.
+  - Latency, memory isolation and recall need separate checks.

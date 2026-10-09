@@ -10,12 +10,12 @@ Status checked **1 October 2026**. This runbook describes the existing portfolio
 deployment and its boundaries. Documentation edits do not require redeployment.
 
 The product entry point is **[Tarnfield Care customer chat](http://127.0.0.1:3010)**,
-currently hosted locally on this computer and connected to the deployed agent.
+currently hosted locally and running the current single-agent source with managed state.
 Follow [the frontend setup guide](frontend.md) to start it. The private
-reviewer service below supports internal operations; public customer hosting is
+reviewer service below belongs to the legacy deployment; public customer hosting is
 not deployed yet.
 
-## Current service inventory
+## Existing cloud inventory (last verified 1 October 2026)
 
 | Component | Location or address | Verified state and boundary |
 |---|---|---|
@@ -24,9 +24,9 @@ not deployed yet.
 | Agent Runtime | `projects/823305428259/locations/us-central1/reasoningEngines/3469440221970432000` | Existing runtime updated in place for Arize; a normal frontend chat was verified after rollout |
 | Support Operations | [Cloud Run dashboard](https://support-ops-dashboard-tdghggm6ma-uc.a.run.app/ops/) | Private reviewer application, not the customer frontend |
 | Cloud Run service | `support-ops-dashboard`, region `us-central1` | Latest ready revision `support-ops-dashboard-00004-nt7`; Ready, ConfigurationsReady and RoutesReady all true |
-| Chat gateway | `http://127.0.0.1:8081` | Local server-side bridge to the deployed agent |
+| Chat gateway | `http://127.0.0.1:8081` | Local server-side runner for current source with managed state |
 | ADK playground | `http://127.0.0.1:8080` | Alternative local interface, started by `make playground` |
-| Arize AX | Project `tarnfield-customer-bot` in the configured Arize space | Automatic deployed ADK trace delivery verified; hosted evaluators and alerts not configured |
+| Arize AX | Project `tarnfield-customer-bot` in the configured Arize space | Earlier deployed trace delivery verified; preliminary offline judge calibration recorded; alerts pending |
 
 Agent Runtime is configured with **min instances 0, max instances 10**. A ready
 service may scale to zero and incur a cold start. This inventory is a dated
@@ -142,20 +142,20 @@ this in-place update.
 
 | Check or symptom | Operational response |
 |---|---|
-| Python/frontend regression | Run the relevant checks listed in [README](../README.md#run-and-verify); use an unused integration-server port |
+| Python/frontend regression | Run the relevant checks listed in [frontend guide](frontend.md#verification-and-release); use an unused integration-server port |
 | Quality change | Generate and grade a controlled synthetic dataset; inspect errors, critical cases and held-out results |
 | Agent latency or timeout | Inspect root-trace duration and slow model/tool spans; the gateway defaults to a 120s turn limit and 30s API-operation limit, and the frontend proxy has a 150s timeout |
-| Stream stopped or interrupted | Reload the conversation and inspect action status before repeating a consequential request; visible Stop does not guarantee cloud cancellation |
+| Stream stopped or interrupted | Reload conversation history before resending; visible Stop does not guarantee server cancellation |
 | Missing Arize trace | Check enabled settings, secret permission, project/space, collector diagnostics and ingestion delay using the [observability guide](observability.md) |
 | Dashboard 403 | Check the Google account, service invocation permission and application reviewer configuration; keep private access intact |
 | Wrong or missing runtime resource | Check gateway environment and ignored deployment metadata against the inventory above |
 | Retrieval failure | Inspect ADC, project, region and `make rag-status`; ingestion and project-wide RAG mode changes need deliberate review |
-| Pending action inconsistent with reply | Read the Firestore record and audit history; stored state is authoritative and completion must be human-reported |
 
-The live deployed-action smoke makes real cloud calls and synthetic Firestore
-writes. Use dedicated synthetic records, verify cleanup and avoid treating it
-as a read-only health check. Current checks do not justify resetting customer
-sessions, deleting the runtime or removing a corpus as a routine repair.
+Current source has no action-writing path. Legacy deployed-action scripts were
+removed and must not be used as current health checks. Live model/memory smokes
+still use cloud services and may write synthetic session/memory data. Current
+checks do not justify resetting sessions, deleting the runtime or removing a
+corpus as a routine repair.
 
 For agent rollback, retain the previous tested source, lockfile, non-secret
 configuration and secret references, then perform an approved in-place update
@@ -167,8 +167,7 @@ configuration rollback requiring a runtime update, not a dashboard change.
 
 ## Customer launch gaps
 
-Public frontend hosting, verified customer identity/order ownership, independent
-reviewer attribution, abuse/rate/quota controls, broader evaluation gates,
+Public frontend hosting, verified customer identity/order ownership, abuse/rate/quota controls, held-out judge validation, fresh-output quality gates,
 measured latency, policy freshness ownership, retention/consent, alerts,
 CI/CD and a rehearsed rollback remain open. Readiness of the two deployed
 services does not resolve these product requirements.

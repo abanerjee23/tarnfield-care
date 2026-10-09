@@ -1,114 +1,67 @@
 # Cost and measurement
 
-Planning reference checked **1 October 2026**. The goal is an affordable,
-grounded completion with an accountable handoff, not the cheapest model call
-in isolation. Costs below are in USD; account discounts, tax, credits and
-other workloads are not known from the trace evidence.
+The aim is useful, supported guidance at a predictable cost per successful
+answer. The single-agent design has no representative cost baseline yet.
 
-## Model rates and routing
+## Current cost drivers
 
-The current configuration uses the **Gemini Developer API**, not Vertex AI model
-endpoints. RAG and managed cloud services still use Google Cloud credentials.
-
-| Model | Role | Standard input / output per million tokens |
-|---|---|---|
-| `gemini-3.8-flash` | Root routing and customer delivery | $0.75 / $3.75 through 31 December 2026; $1.50 / $7.50 from 1 January 2027 |
-| `gemini-3.1-pro-preview` | Returns/exchanges and billing specialists | $2 / $12 for prompts ≤200k tokens; $4 / $18 above 200k |
-| `gemini-3.7-flash` | Custom evaluation judge | $0.75 / $3.75 through 31 December 2026; $1.50 / $7.50 from 1 January 2027 |
-
-Output pricing includes thinking tokens. These are published paid Standard API
-rates, not a claim about this account's bill or free-tier eligibility. Confirm
-rates before the next forecast or experiment. [Official Gemini pricing](https://ai.google.dev/gemini-api/docs/pricing).
-
-## What has actually been measured
-
-The corrected deployed frontend trace
-`ee18fb93d34d639e485828b08573974e` showed **four model calls**, **11,424 tokens**,
-**35.14 seconds** and an Arize model-cost estimate of **$0.019899**. This is one
-final-sale question. Arize's estimate is not an invoice and does not include
-hosting, storage, memory generation, evaluation or the Arize account plan.
-
-The number of agents is not the number of model requests. Do not forecast each
-turn as one root call plus one specialist call when tool use can require several
-requests. Count eligible LLM spans once; do not add native duplicate spans,
-workflow aggregates or parent totals again. Similarly, parent durations include
-children and must not be summed into customer latency.
-
-For an explicit illustration, **1,000 conversations × two turns × $0.019899 =
-about $39.80 in model costs** if every turn resembles that one sample. This is
-not a representative monthly forecast. Different routes, longer histories,
-thinking tokens, retries, failed turns and memory/judge calls can change it.
-The previous fixed monthly estimate has been replaced by this transparent
-assumption and a measurement plan.
-
-For each request, estimate model spend as:
-
-```text
-sum over model calls:
-  input_tokens × input_rate / 1,000,000
-  + billable_output_tokens_including_thinking × output_rate / 1,000,000
-```
-
-Account for caching or other pricing modes only when actually enabled and
-verified. Track judge spend separately from customer inference. The current
-CLI's custom judge runs outside the ADK trace integration, so the Arize inference
-tree does not automatically account for evaluation grading costs.
-
-## Service cost drivers
-
-The account's actual allowances and charges have not been audited. Avoid
-assuming that a small demonstration, scale-to-zero or a provider free tier makes
-every component free.
-
-| Component | Cost driver and measurement needed |
+| Component | What to measure |
 |---|---|
-| Agent Runtime | Active compute/memory, instance duration and cold-start behaviour; current scaling is 0–10 instances |
-| Managed sessions | Stored conversation events, retention and traffic |
-| Memory Bank | Stored/retrieved memories plus generation calls; continuity adds work beyond the immediate answer |
-| Serverless RAG | Ingestion, embeddings, storage/retrieval and any reranking; verify the corpus mode and region |
-| Firestore | Reads/writes, transactional action updates, audit history and dashboard polling |
-| Cloud Run | Active requests/compute for the private reviewer dashboard |
-| Secret Manager | Active secret versions and access operations |
-| Build and artifact storage | Cloud Build minutes, Artifact Registry images and staging Cloud Storage |
-| Cloud Logging and Trace | Telemetry ingestion, storage/retention and downstream processing |
-| Arize AX | The account's plan, span/storage volume and any future hosted evaluation usage; plan/billing not verified |
-| Customer frontend hosting | A future hosting choice; no public frontend-hosting cost is established here |
+| Gemini 3.8 Flash | Input/output tokens, thinking where billed, retries and longer histories |
+| Google Cloud RAG | Ingestion, embeddings, storage and retrieval; inspect region and billing mode |
+| Managed sessions and Memory Bank | Stored history, retention, recall and memory generation |
+| Agent hosting | Runtime compute, cold starts and scaling after release |
+| Arize AX | Trace volume, retention, account plan and offline judge usage |
+| Evaluation | Judge model, cases, repetitions, failures and re-grading |
+| Supporting services | Secrets, build artifacts and native Cloud logging/trace |
+| Public frontend | Hosting choice and traffic; not yet deployed |
 
-Use current provider billing reports rather than assigning each line a guaranteed
-zero. Relevant references: [Cloud Run pricing](https://cloud.google.com/run/pricing),
-[Firestore pricing](https://cloud.google.com/firestore/pricing),
-[Google Cloud pricing](https://cloud.google.com/pricing) and
-[Arize plans](https://arize.com/pricing/).
+Model calls use the Gemini Developer API; retrieval and managed state use Google
+Cloud. Keep these billing paths separate. One intended model response is not a
+fixed price per turn: retries, context length and memory work still matter.
 
-## Evaluation and smoke budgets
+Existing legacy Cloud Run and Firestore resources may continue to cost money,
+even though the current source does not use them. Inventory them and obtain
+retirement approval after replacement and rollback verification.
 
-| Operation | Cost boundary |
-|---|---|
-| Unit/integration checks with Arize disabled | Most use deterministic adapters; the billed live check is opt-in |
-| Default Arize smoke | Deterministic ADK model adapter, real OTLP delivery; no model bill, but sends telemetry |
-| Arize smoke with `--real` | Live agent/model/retrieval usage |
-| Behavioural dataset generation | Real model/tool calls; can mutate configured support-action storage |
-| Custom judge grading | Additional Gemini calls, including failed/repeated grading attempts |
-| Deployed memory/action smokes | Real managed-service/model calls; synthetic data must be isolated and cleaned |
+## What has been recorded
 
-Estimate cases × repetitions × expected call usage before a run. Separate
-inference generation from grading to avoid paying for unchanged responses again.
-Preserve explicit trace/report files so a regrade uses the intended cases.
-See [evaluation](evaluation.md) for backend/server isolation and report handling.
+Two local single-agent smoke turns took 5.7s and 4.4s, with 3,893 and 3,949 total
+tokens respectively. These totals are not enough to calculate a bill without
+input/output breakdowns, applicable rates and service usage.
 
-## Measurement and iteration plan
+For historical context, the earlier deployed multi-agent trace
+`ee18fb93d34d639e485828b08573974e` recorded four model calls, 11,424 tokens,
+35.14 seconds and an Arize model-cost estimate of $0.019899. That estimate is not
+an invoice, a current-design cost, or a matched before/after comparison.
 
-Record cost per grounded completed turn and per resolved conversation, including
-failed turns and retries. Pair it with task completion, critical safety failures,
-citation validity, p50/p95 latency and reviewer effort. A cheaper model that
-creates more escalations or incorrect decisions may cost the product more.
+## Measurement plan
 
-Establish a repeated baseline on a fixed dataset and retain holdouts before an
-all-Flash comparison. Keep model IDs, input versions, backend/session settings,
-judge rubric and run dates stable; inspect critical failures rather than relying
-on an average score. The current two-case baseline cannot settle a model choice.
+Record cost per successful answer, including failed turns and retries, alongside
+correctness, grounding, scope failures and customer task completion. Measure
+p50/p95 time to first useful text and completed response on representative cases.
 
-Google Cloud budget alerts, model-call budgets, Arize alerts and routine billing
-review are proposed operational controls; they are **not configured by the
-tracing migration**. Assign owners and thresholds before a customer launch.
-See [the build plan](build-plan.md) and [observability](observability.md).
+Count each eligible model call once. Do not add native duplicate spans or parent
+aggregates. Track evaluation costs separately from customer inference; the
+legacy CLI judge runs outside the automatic ADK trace integration.
+
+For model spend, multiply input and billable output tokens by their applicable
+rates, including thinking and caching only as billed. Verify current account
+rates before budgeting; use provider bills to reconcile estimates. Do not infer
+free service from a small demo or scale-to-zero configuration.
+
+For a live experiment, agree cases × repetitions × expected inference and judge
+usage first. Preserve outputs so unchanged answers can be regraded without
+regenerating them. Deterministic unit checks do not measure billed behaviour;
+live smoke tests use cloud services and may write managed session/memory data.
+
+## Operational controls
+
+Use `make rag-status` to inspect both the corpus and project/location billing
+mode. Deleting a corpus alone does not unprovision a basic RAG instance; project-wide
+mode changes require deliberate review.
+
+Budget alerts, per-user quotas, quality/cost alert thresholds and routine billing
+ownership remain release work. Trace delivery does not configure these controls.
+See [evaluation](evaluation.md), [observability](observability.md) and
+[deployment](deployment.md).

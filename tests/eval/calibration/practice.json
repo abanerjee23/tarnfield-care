@@ -1,0 +1,103 @@
+{
+  "purpose": "Human marking practice before judge calibration; not agent-generated outputs.",
+  "rubric_version": "policy-rubric-v1-draft",
+  "dataset_status": "historical_v1_practice",
+  "rubric_reference": "rubric-v1.yaml",
+  "label_version_note": "These human scores belong to v1. The active workshop rubric is policy-rubric-v2-draft; do not automatically transfer scores to it.",
+  "examples": [
+    {
+      "id": "practice-001",
+      "split": "practice",
+      "customer_question": "My Solstice Edition shoes are unworn and not faulty. Can I return them?",
+      "expected_facts": [
+        "The Solstice Edition is final sale.",
+        "It is not returnable or exchangeable unless faulty.",
+        "Being unworn does not remove the final-sale exception."
+      ],
+      "evidence_supplied": [
+        {
+          "id": "S1",
+          "document": "tarnfield_product_catalogue.pdf",
+          "product": "Ridgeline Road, Solstice Edition",
+          "excerpt": "Returns. Final sale. Not returnable or exchangeable unless faulty."
+        }
+      ],
+      "candidate_answer": "Yes! Since they are unworn, you can return them within the normal return window. Source: Product catalogue (S1).",
+      "origin": "Hand-authored teaching example; not a measured app response.",
+      "human_labels": {
+        "correctness": {
+          "score": 0,
+          "reason": "Misleading: the edition is final sale under the policy, so these non-faulty shoes cannot be returned.",
+          "labelled_by": "Abhinav",
+          "human_comment": "i'll give 0 as this is misleading. they cannot be returned as the edition is final sale only as per policy"
+        },
+        "grounding": {
+          "score": 0,
+          "reason": "The assistant's return claim contradicts the supplied passage, which excludes returns unless faulty.",
+          "labelled_by": "Abhinav",
+          "human_comment": "Again a 0 as Assistant's response is completely different to what the passage is syaing"
+        },
+        "citation_support": {
+          "score": 0,
+          "reason": "The named source contradicts the return conclusion; identifying a real document is not enough for citation support.",
+          "labelled_by": "Abhinav",
+          "human_comment": "Yes, 0 makes sense",
+          "review_status": "confirmed_after_rubric_discussion",
+          "revision_history": [
+            {
+              "previous_score": 1,
+              "human_comment": "I'll give 1 - it does identify the source but doesn't give the precise policy line from it",
+              "revision_reason": "Distinguished naming a source from whether its passage supports the claim; an exact quotation is not required."
+            }
+          ]
+        },
+        "scope_and_honesty": {
+          "score": 2,
+          "reason": "It stays within returns/exchanges and does not claim it processed a return or performed another action.",
+          "labelled_by": "Abhinav",
+          "human_comment": "No it din't so I'll score 2"
+        },
+        "helpfulness": {
+          "score": 0,
+          "reason": "It directs the customer toward a return that the supplied policy does not allow.",
+          "labelled_by": "Abhinav",
+          "human_comment": "0"
+        }
+      },
+      "human_label_status": "complete",
+      "rubric_decision": {
+        "decision": "fail",
+        "basis": "The rubric fails answers with a 0 on an applicable critical criterion, regardless of other scores."
+      }
+    },
+    {
+      "id": "practice-002",
+      "split": "practice",
+      "customer_question": "My Solstice Edition shoes are unworn and not faulty. Can I return them?",
+      "expected_facts": [
+        "The Solstice Edition is final sale.",
+        "It is not returnable or exchangeable unless faulty.",
+        "Being unworn does not remove the final-sale exception."
+      ],
+      "evidence_supplied": [
+        {
+          "id": "S1",
+          "document": "tarnfield_product_catalogue.pdf",
+          "product": "Ridgeline Road, Solstice Edition",
+          "excerpt": "Returns. Final sale. Not returnable or exchangeable unless faulty."
+        }
+      ],
+      "candidate_answer": "No. Solstice Edition shoes are final sale and cannot be returned or exchanged unless faulty. As yours are not faulty, being unworn does not make them eligible for a return. Source: Product catalogue (S1).",
+      "origin": "Hand-authored teaching example; not a measured app response.",
+      "human_labels": {
+        "correctness": {"score": 2, "reason": null, "labelled_by": "Abhinav"},
+        "grounding": {"score": 2, "reason": null, "labelled_by": "Abhinav"},
+        "citation_support": {"score": 1, "reason": null, "labelled_by": "Abhinav", "review_status": "pending_citation_discussion"},
+        "scope_and_honesty": {"score": 2, "reason": null, "labelled_by": "Abhinav"},
+        "helpfulness": {"score": 2, "reason": null, "labelled_by": "Abhinav"}
+      },
+      "human_scoring_comment": "2,2,1,2,2",
+      "human_label_status": "pending_citation_discussion"
+    }
+  ]
+}

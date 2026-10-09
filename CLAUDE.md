@@ -13,9 +13,10 @@
 - The agreed target is one Gemini 3.8 Flash returns/exchanges policy agent with
   RAG citations, managed sessions and Memory Bank. Read docs/build-plan.md before
   building. Billing, specialist delegation and Firestore review workflows are
-  legacy capabilities scheduled for removal, not the target product.
+  removed from current source; older cloud resources remain pending approved retirement.
 - Judge calibration uses human-labelled good, poor and borderline responses;
-  agent evaluations score fresh outputs. Evals remain planned work.
+  agent evaluations score fresh outputs. Preliminary Arize calibration is recorded in
+  docs/ai-evals.md; held-out judge validation and fresh-output evals remain pending.
 
 ## Prerequisites
 
@@ -32,10 +33,10 @@ uv tool install google-agents-cli
 Before writing any code, understand the project's requirements, constraints, and success criteria.
 
 ### Phase 2: Build and Implement
-Implement agent logic in `app/`. Use `make playground` for interactive agent testing with the configured SQLite session and local memory services. Use `make chat-gateway` and `make chat-ui` for the customer frontend connected to the deployed runtime. Iterate based on user feedback; preserve the existing models unless a model change is requested.
+Implement agent logic in `app/`. Use `make playground` for interactive agent testing with the configured SQLite session and local memory services. Use `make chat-gateway` and `make chat-ui` for the customer frontend executing current local policy code with managed state. Iterate based on user feedback; preserve the existing models unless a model change is requested.
 
 ### Phase 3: The Evaluation Loop (Main Iteration Phase)
-Use [the project evaluation guide](docs/evaluation.md). The existing two-case baseline uses `agents-cli` and the custom Gemini judge; Arize AX receives automatic ADK traces. Hosted Arize evaluators are not configured. Agree measurable acceptance criteria, a run budget and held-out cases before a new experiment. The legacy dataset is not new-design coverage, and an already registered ADK server can bypass new environment overrides; use the guide's controlled-server baseline. Inspect per-case errors and judge rationales, and compare saved result files after a change. Do not interpret two high scores as broad product quality. Run prompt optimisation only when explicitly requested.
+Use [the project evaluation guide](docs/evaluation.md). Arize AX is the chosen workspace for offline evaluation and tracing. Three judges have recorded preliminary calibration on eight known examples; independent validation is pending. The two-case `agents-cli` runner and custom Gemini judge remain a legacy development path. Agree measurable acceptance criteria, a run budget and held-out cases before a new experiment. The legacy dataset is not new-design coverage, and an already registered ADK server can bypass new environment overrides; use the guide's controlled-server baseline. Inspect per-case errors and judge rationales, and compare saved result files after a change. Do not interpret two high scores as broad product quality. Run prompt optimisation only when explicitly requested.
 
 ### Phase 4: Pre-Deployment Tests
 Run `uv run pytest tests/unit tests/integration`. Fix issues until all tests pass.

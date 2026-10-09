@@ -1,193 +1,198 @@
 # Tarnfield Care — Returns & Exchanges Policy Assistant
 
-A customer assistant for a fictional running retailer, designed to explain
-returns and exchanges using policy evidence customers can inspect.
+Clear returns and exchanges guidance for customers of a fictional running
+retailer. Tarnfield Care explains the relevant policy, shows its sources and
+helps customers understand their next step.
 
-**Project status:** the simplified agent is built and runs in the local customer
-preview. Billing specialists, Firestore actions and the reviewer app have been
-removed from source. The existing cloud deployment has not been replaced or
-deleted. Quality evaluations and release approval are next.
+**Status:** working local preview with cloud retrieval and conversation memory.
+Initial judge calibration is recorded; independent validation and evaluation of
+fresh assistant answers are still pending. The single-agent design is not yet
+publicly deployed.
 
-## 1. User
+## Who it helps
 
-| User | Job to be done | Friction |
-|---|---|---|
-| Customer | Understand whether and how an item can be returned or exchanged | Finding the relevant rules, interpreting exceptions and repeating details |
+Customers who need to know whether an item can be returned or exchanged, including
+faulty products and special editions. Today, they would search policy pages,
+compare exceptions and explain the same details again when asking for help.
 
-The portfolio scenario uses fictional products and sample orders. There is no
-connection to a real retailer or commerce system.
+## The problem
 
-## 2. Problem
+A return can depend on when an item arrived, its condition and product-specific
+exceptions. Finding one clause is not enough: customers need an explanation that
+applies the relevant rules to their situation without inventing eligibility.
 
-Returns decisions can depend on several clauses: the return window, item
-condition, faults and product exceptions. Customers need a clear explanation
-that applies the right policy to their circumstances and tells them what to do
-next. A confident answer that invents eligibility would undermine trust.
+The intended benefit is less time searching and less repeated context. Customer
+task completion and time saved still need to be measured.
 
-The product's intended value is less time searching and less repeated context.
-Customer task completion and time saved still need to be measured.
+## Why AI?
 
-## 3. Why AI?
+AI helps interpret everyday questions and explain policy in plain language.
+Retrieval supplies the policy passages for each answer. Ordinary software handles
+source restrictions, sample-order dates and citation checks.
 
-An LLM can interpret varied customer questions and explain policy in plain
-language. Retrieval supplies the relevant documentation before the response.
-Small software checks restrict sources, validate citations and calculate dates
-when needed. These checks support reliability without adding more agents.
+One assistant keeps the workflow simple. More agents would add coordination,
+latency and cost without a clear need in this narrow task.
 
-## 4. Success criteria
+## What success means
 
-These are proposed gates for the new design, subject to evaluation; they are
-not claims about the current deployment.
+These are proposed release targets, not measured product results.
 
-| Outcome | Proposed measure |
+| Outcome | Target |
 |---|---|
-| Correct, supported answers | ≥90% accuracy on held-out policy cases |
-| Reliable scope boundary | All critical unrelated-topic and action-request cases handled appropriately |
-| Inspectable evidence | ≥95% of policy determinations cite evidence; every displayed citation maps to actual retrieval |
-| Useful continuity | ≥90% success on relevant recall cases; no cross-customer leakage |
-| Responsive experience | p95 completed response ≤8 seconds; separately measure first useful text |
-| Honest capability | No claims that a refund, exchange or support request was executed |
+| Correct policy guidance | At least 90% accuracy on held-out cases |
+| Inspectable evidence | At least 95% of policy decisions cite evidence; every displayed citation comes from retrieved material |
+| Clear capability limits | All critical scope and action-request cases handled correctly; no offers, promises or claims of unavailable actions |
+| Useful continuity | At least 90% success on relevant recall cases; no cross-customer leaks in testing |
+| Responsive help | 95% of completed responses within 8 seconds |
 
-## 5. UX and interaction design
+## The customer experience
 
-Customers ask about returns and exchanges, inspect supporting policy citations
-and revisit conversations. The assistant asks for missing details when needed.
-It explains uncertainty when the policy is silent, conflicting or unavailable.
+Customers ask a question, receive a concise explanation and can inspect the
+supporting passage or original policy. Conversation history lets them pick up
+where they left off. The assistant asks for missing details and explains when
+the available evidence is insufficient.
 
-For unrelated questions it briefly explains its scope and invites a returns or
-exchange question. It can explain return policy and next steps, but cannot issue
-a refund, arrange an exchange or file a ticket. Customers retain control over
-their decisions and any contact with the retailer.
+If a customer asks “Please arrange an exchange,” it states that it cannot carry
+out the exchange, then gives supported policy guidance when evidence is
+available. Customers take the next step themselves. The assistant cannot issue
+refunds, arrange exchanges, file tickets or contact staff.
 
-## 6. Agent and system design
+Unrelated questions receive a brief redirect. For mixed questions, the intended
+behaviour is to answer the returns or exchanges part and redirect the rest.
+Answers appear after validation, with a visible progress indicator while waiting.
 
-The build uses one **Gemini 3.8 Flash** agent. Scope checks and fresh policy
-retrieval happen before generation, so no model call is spent choosing a tool.
-The intended path is one model response; API retries can still add latency.
+## How it works
 
 ```mermaid
 flowchart TD
-    Customer[Customer] --> UI[Customer chat]
-    UI --> Gateway[Server-side gateway]
-    Gateway --> Scope[Local scope check]
-    Scope --> Retrieval[Fresh scoped retrieval]
-    Retrieval --> RAG[(Returns policy + product catalogue)]
-    Retrieval --> Agent[Single Gemini 3.8 Flash agent]
-    Agent --- Sessions[(Managed conversation state)]
-    Agent --- Memory[(Memory Bank: selected customer details)]
-    Agent --> Validation[Answer schema + citation identity checks]
-    Validation --> Answer[Cited answer or honest uncertainty]
-    Answer --> UI
-    Scope --> Redirect[Scope redirect: no model call]
-    Redirect --> UI
-    Agent -. latency, usage and failures .-> Arize[Arize AX]
+    Customer[Customer] --> Chat[Customer chat]
+    Chat --> Gateway[Server-side gateway and scope checks]
+    Gateway --> Retrieval[Retrieve relevant policy passages]
+    Policies[(Returns policy and product catalogue)] --> Retrieval
+    Retrieval --> Agent[One Gemini Flash assistant]
+    Agent <--> State[(Conversation history and selected customer memory)]
+    Agent --> Checks[Answer and citation checks]
+    Checks --> Answer[Supported guidance or clear uncertainty]
+    Answer --> Chat
+    Gateway --> Redirect[Redirect or clarification when needed]
+    Redirect --> Chat
+    Agent -. execution traces .-> Arize[Arize AX: tracing and offline evaluation]
+    Examples[Human-labelled synthetic examples] -. judge calibration .-> Arize
 ```
 
-| Component | Customer/product purpose |
+| Component | Purpose |
 |---|---|
-| Next.js chat + FastAPI gateway | Deliver the conversation while keeping credentials server-side |
-| Google ADK / Agent Runtime | Host one policy agent using `gemini-3.8-flash` |
-| RAG | Fetch evidence from the returns policy and relevant product exceptions |
-| Managed sessions | Preserve context within a conversation |
-| Memory Bank | Recall useful past details so customers repeat themselves less |
-| Scope and citation checks | Keep answers relevant and traceable to evidence |
+| Next.js chat and FastAPI gateway | Present the conversation and keep credentials on the server |
+| Google ADK with Gemini 3.8 Flash | Produce one policy response after retrieval, with bounded retries |
+| Google Cloud RAG | Retrieve fresh evidence from the returns policy and product catalogue |
+| Managed sessions and Memory Bank | Preserve conversations and recall selected order, item and issue details |
+| Answer and citation checks | Reject malformed answers, unknown source references and detected action promises |
+| Arize AX | Inspect execution and calibrate quality judges on synthetic examples |
 
-Current policy evidence is authoritative. Memory supports continuity and must
-never supply or override a policy rule. Billing, Firestore support actions and
-the reviewer dashboard are excluded from the new product.
+The preview runs the agent locally while using Google Cloud for retrieval and,
+by default, conversation state. Memory provides customer context; it never
+replaces current policy evidence. Citation checks confirm where a source came
+from; evaluation must still assess whether it supports the answer.
 
-## 7. Evaluation and experimentation
+## How quality is evaluated
 
-Evaluate policy correctness, grounding, citation integrity, scope handling,
-recall and latency separately. Keep reference cases with expected policy facts
-and sources, then run the actual assistant on those questions.
+Three criteria are scored separately:
 
-Calibrate an LLM judge using good, poor and borderline answers labelled by a
-human against an explicit rubric. Hide the human labels from the judge, inspect
-disagreements and validate on a separate holdout. Apply the calibrated judge to
-fresh agent outputs, supported by software checks and human review of critical
-failures. Judge agreement and false passes should be measured explicitly.
+| Criterion | Question |
+|---|---|
+| Correctness | Is the policy explanation right for this situation? |
+| Grounding | Do the supplied passages support the claims and citations? |
+| Scope and safety | Does the assistant stay within its role and respect privacy and capability limits? |
 
-The historical two-case baseline does not establish quality for this new scope.
-The [evaluation guide](docs/evaluation.md) describes the existing runner; the
-[build plan](docs/build-plan.md) defines the required replacement coverage.
+Scores are 0 (fail), 1 (partial) or 2 (meets the criterion), with N/A where a
+criterion does not apply. Scores are never averaged: a correct answer cannot
+cancel out an unsafe promise. Exact policy quotations are optional; supported,
+clear paraphrases are welcome.
 
-## 8. Observability
+The evaluation log records each of the three Arize judges matching all eight
+human-labelled calibration examples in its latest version. These are hand-written
+answers used to tune the judges, not fresh assistant outputs or an independent
+test. Held-out judge validation comes next, followed by evaluation of the actual
+assistant. [Evaluation approach and evidence](docs/evaluation.md).
 
-Arize AX already receives automatic agent, model and tool traces. Use that
-visibility to understand retrieval failures, model time, retries and memory
-overhead. The new design still needs managed-path trace verification and representative measurements.
-Content is masked by default; controlled evaluation data needs a deliberate
-capture and retention policy. [Observability guide](docs/observability.md).
+## What is monitored
 
-## 9. Product iteration
+Automatic Arize traces help investigate model usage, latency and failures.
+Prompt and response content is masked by default. Synthetic offline evaluation
+uses a separate dataset, so calibration does not require capturing customer chats.
 
-| Evidence or decision | Planned response | Measurement |
-|---|---|---|
-| Previous normal trace took 35.14 seconds across four model calls | Replace delegation with one Flash agent | Compare quality, call count and latency on matched cases |
-| Simulated review workflow had no real commerce outcome | Remove Firestore actions and reviewer UI | Clearer scope; no false action promises |
-| Customers need credible answers | Preserve retrieved evidence and verified citations | Correctness, grounding and citation integrity |
-| Customers may return with the same issue | Retain sessions and Memory Bank | Recall usefulness and identity isolation |
+Trace delivery has been demonstrated on the earlier deployment. The current
+managed-state path still needs end-to-end trace and privacy verification.
+Online quality evaluation, alerting and retention controls remain release work.
+[Observability guide](docs/observability.md).
 
-Reviewed failures, confusing answers and slow turns become regression cases.
-Record what changed, why, and its measured effect before claiming improvement.
+## How the product improves
 
-## 10. AI safety and trust
+Confusing answers, unsupported claims, missed exceptions and slow turns become
+test cases. Compare changes on the same questions, keep independent test cases
+separate, and review failures before claiming improvement.
 
-The assistant covers returns and exchanges. Billing, account access, general
-delivery tracking, unrelated advice and execution requests receive a scope
-redirect. Returns-related shipping questions remain in scope when the policy
-covers them; ambiguous or mixed questions need clarification.
+Key tradeoffs are one assistant for lower coordination overhead, validated answers
+before display for greater trust, and selective memory for less repetition.
+Each needs evidence of its effect on quality, response time and cost.
 
-Retrieved content and remembered details are evidence/context, not permission
-to change system instructions. Missing policy evidence must produce an honest
-uncertainty response. The target exposes no action-taking tools.
+## Safety and trust
 
-Anonymous browser continuity does not verify a customer's identity or ownership
-of an order. Any public release needs identity isolation, abuse controls and
-clear consent, deletion and retention behaviour.
+The demo uses fictional policies and sample orders, with no connection to a real
+retailer's order or payment systems. It explains policy and leaves actions with
+the customer.
 
-## 11. Production, operations and cost
+Retrieved passages and remembered details are treated as context, never as
+instructions. Missing evidence should lead to uncertainty rather than a guess.
+Scope rules and output checks reduce known failures but do not guarantee safety;
+mixed requests, prompt injection and misleading citations need broader testing.
 
-The frontend, gateway and current agent code run locally. Policy retrieval,
-managed sessions and Memory Bank use Google Cloud. Public hosting and deployment
-of the new agent are pending. Current deployment/recovery details remain in [the deployment guide](docs/deployment.md).
+Browser continuity is not verified customer identity. Public release requires
+stronger identity isolation, abuse controls, and clear consent, deletion and
+retention arrangements.
 
-Track cost per successful answer, tokens, retrieval usage, memory overhead and
-retries. The new architecture has no measured cost baseline yet. Retire legacy
-cloud services only after the replacement is verified and rollback is prepared.
+## Running and operating the preview
 
-To open the **current policy preview**, run these in separate terminals:
+Follow the [setup guide](docs/frontend.md) for dependencies, credentials and cloud
+configuration. Then run these in separate terminals:
 
 ```bash
 make chat-gateway
 make chat-ui
 ```
 
-Open [Tarnfield Care](http://127.0.0.1:3010). See the
-[frontend setup guide](docs/frontend.md) for dependencies and credentials.
+Open [Tarnfield Care locally](http://127.0.0.1:3010).
 
-## 12. Portfolio evidence
+Public hosting, deployment of the current agent, release monitoring and rollback
+verification are pending. Earlier cloud services remain separate from the local
+preview; their inventory is in the [deployment guide](docs/deployment.md).
 
-The story is disciplined scope reduction and credible policy answers, followed
-by calibrated evaluation. Local verification passed 130 backend tests, 30
-frontend tests, TypeScript checks and a production UI build. Two live in-scope
-smoke turns used one model response each, completing in 5.7s and 4.4s. This is not
-a matched performance comparison or proof of quality. See the
-[build report](docs/build-report.md) for evidence and remaining release gates.
+Track cost per successful answer, including retrieval, memory, model calls,
+retries and evaluation. There is no representative cost baseline for this design
+or proof that one model call meets the latency target. [Cost and measurement](docs/costs.md).
 
-## Project documentation
+## Evidence and remaining questions
 
-Supporting documents live in `docs`. Coding-tool instruction files remain at
-their discovery locations.
+Two recorded local smoke questions produced cited answers with one model response
+each, taking 5.7 and 4.4 seconds. These are individual examples, not a latency
+benchmark or a quality score. Deterministic checks cover application behaviour;
+the [build report](docs/build-report.md) records their results and limits.
+
+The [evaluation log](docs/ai-evals.md) records rubric decisions and preliminary
+judge calibration. Independent judge validation, fresh assistant evaluations,
+managed-memory isolation and customer outcome measures remain unproven.
+
+## Further reading
 
 | Document | Purpose |
 |---|---|
-| [Build plan](docs/build-plan.md) | Agreed scope, implementation stages and acceptance gates |
-| [Evaluation guide](docs/evaluation.md) | Existing evaluation workflow and limitations |
-| [Dataset guide](docs/eval-datasets.md) | Existing case formats and baseline evidence |
-| [Frontend guide](docs/frontend.md) | Current local setup and interaction behaviour |
-| [Observability guide](docs/observability.md) | Arize integration and privacy controls |
-| [Deployment guide](docs/deployment.md) | Existing service inventory and recovery |
-| [Cost guide](docs/costs.md) | Historical measurement and cost assumptions |
-| [Engineering notes](docs/engineering-notes.md) | Historical implementation details needed during migration |
+| [Build and release plan](docs/build-plan.md) | Decisions, tradeoffs and release gates |
+| [Evaluation guide](docs/evaluation.md) | Quality approach, current evidence and legacy runner |
+| [Evaluation log](docs/ai-evals.md) | Human labels, calibration results and decisions |
+| [Dataset guide](docs/eval-datasets.md) | Calibration inputs and fresh-output seed cases |
+| [Arize evaluation setup](docs/arize-evaluation-setup.md) | Reproduce and extend offline judge calibration |
+| [Frontend guide](docs/frontend.md) | Local setup and conversation behaviour |
+| [Observability guide](docs/observability.md) | Tracing and privacy controls |
+| [Deployment guide](docs/deployment.md) | Cloud inventory, release and recovery |
+| [Cost guide](docs/costs.md) | Measurement plan and historical evidence |
+| [Engineering notes](docs/engineering-notes.md) | Implementation details |

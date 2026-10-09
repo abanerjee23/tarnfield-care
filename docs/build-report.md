@@ -60,3 +60,39 @@ Evals are next: rubric → human-scored good/poor/borderline answers → judge
 calibration and separate holdout → scoring fresh agent outputs. Public deployment
 also requires consent/deletion/retention, identity, abuse limits, monitoring,
 representative latency/cost measurements and an approved release/rollback plan.
+
+## Documentation and repository review — 9 October 2026
+
+The current action-request contract is capability limit plus supported policy
+guidance. The 4 October action-redirect smoke above predates that decision and
+must not be treated as evidence of the current behaviour. The existing prompt,
+guardrail changes and deterministic regression cases are included in the
+standalone repository.
+
+The [evaluation log](ai-evals.md) records preliminary calibration of three Arize
+judges on eight known human-labelled examples. Held-out validation and evaluation
+of fresh assistant outputs remain pending. The calibration examples have no
+score-1 labels; partial-score coverage is still needed. This documentation review
+did not rerun hosted calibration or a paid model evaluation.
+
+Documentation was checked against source, configuration and the recorded
+product decisions. The README describes the customer experience and essential
+architecture, with technical details in the supporting guides. Legacy workflow
+instructions were removed from current guidance; historical measurements remain
+explicitly dated. The project is published independently at
+[Tarnfield Care](https://github.com/abanerjee23/tarnfield-care).
+
+| Review check | Result |
+|---|---|
+| Backend tests in a clean project copy, Arize disabled, unused server port | 136 passed, 1 opt-in live test skipped |
+| Frontend tests on Node 22 | 30 passed |
+| TypeScript and production frontend build | Passed |
+| Ruff | Passed |
+| Documentation links and local heading anchors | Passed |
+| Evaluation assets | JSON parsed; eight matching labelled/blind case IDs; blind columns exclude human labels |
+
+The first local run encountered enabled tracing from local overrides, an occupied
+integration port and an unsupported Node 18 runtime. The isolated run and Node 22
+resolved those environment failures without changing application code. These
+checks do not establish live-model quality, managed-memory isolation or release
+readiness.
