@@ -1,9 +1,10 @@
 # Evaluating Tarnfield Care
 
 The quality question is whether customers receive correct, supported policy
-guidance within the assistant's limits. Arize AX is the chosen workspace for
-tracing and offline evaluation. The older `agents-cli` runner remains available
-for development; its single 1–5 score is separate from the current rubric.
+guidance within the assistant's limits. Braintrust is the chosen platform for
+offline evaluation and observability. Its scorers and experiment integration
+are pending. The older `agents-cli` runner remains available for development,
+using a single 1–5 score.
 
 ## Current evidence
 
@@ -11,16 +12,16 @@ for development; its single 1–5 score is separate from the current rubric.
 |---|---|---|
 | Three-criterion rubric | Draft, revision 3 | Defines correctness, grounding, and scope and safety separately |
 | Human-labelled calibration set | Eight synthetic, hand-written answers | Reference labels for judge development, not assistant outputs |
-| Arize judge calibration | Evaluation log records 8/8 agreement for each latest judge | Agreement on known tuning examples; not independent validation |
+| Historical Arize judge calibration | Evaluation log records 8/8 agreement for each final judge version | Agreement on known tuning examples from the earlier platform |
+| Braintrust integration | Selected, setup pending | No Braintrust scorer, experiment or trace verification recorded |
 | Held-out judge validation | Pending | No evidence yet that the judges generalise |
 | Fresh assistant-output evaluation | Pending under this rubric | No measured quality baseline for the single-agent design |
 | Historical CLI baseline | Two cases scored 5/5 in September | Earlier workflow and rubric; not acceptance evidence for this design |
 
-The [evaluation log](ai-evals.md) records decisions and calibration results.
-Arize evaluator definitions and result exports are not checked in; the recorded
-8/8 figures have not been independently reproduced in this documentation review.
-See the [Arize setup guide](arize-evaluation-setup.md) for the workflow and the
-[dataset guide](eval-datasets.md) for checked-in assets.
+The [evaluation log](ai-evals.md) records decisions and earlier calibration
+results. Hosted Arize definitions and result exports are absent from the
+repository. See the [dataset guide](eval-datasets.md) for the checked-in assets
+and the [historical Arize walkthrough](arize-evaluation-setup.md) for context.
 
 ## Rubric and decisions
 
@@ -40,17 +41,27 @@ guidance when evidence is available. A generic “check the policy” deflection
 not a correct answer when the in-scope question can be answered from that evidence.
 For mixed requests, answer the policy part and redirect unrelated content.
 
-Arize stores the Grounding `not_applicable` label with numeric 0. Use the label to
-exclude it from quality comparisons; do not count it as a failure or a perfect score.
+Preserve the original rubric outcome for each criterion. Braintrust scorers use
+a 0–1 scale, so an applicable rubric score can be divided by two for display.
+Carry N/A and unscored as explicit states and exclude them from numeric quality
+rates. Use the original rubric outcomes for case decisions.
+[Braintrust scorer documentation](https://docs.braintrust.dev/evaluate/write-scorers)
 
-## Validation sequence
+## Braintrust offline workflow
 
-1. Freeze the existing calibration examples and judge versions.
-2. Create and human-label a separate held-out set, keeping labels out of judge inputs.
-3. Run the judges on that set and inspect disagreements and false passes.
-4. Agree acceptance criteria and a run budget for fresh assistant outputs.
-5. Generate real answers, score each criterion, review failures and compare changes
-   on the same cases while preserving independent checks.
+1. Version three independent scorers against the checked-in rubric. Calibrate
+   on fixed candidate answers and synthetic evidence. Keep human scores and
+   label rationales out of judge inputs. Confirm the draft borderline labels
+   before using them as references.
+2. Freeze a separate human-labelled holdout. Compare Braintrust scorer results
+   with the labels and inspect disagreements and false passes by criterion.
+3. Agree acceptance criteria and a run budget. Run fresh cases through the
+   current assistant, recording the customer-facing reply, actual evidence
+   supplied and displayed citations. Use a controlled harness where a case
+   depends on simulated retrieval or isolated memory.
+4. Save the scored run as a Braintrust experiment. Review failures and compare
+   changes on the same cases while preserving independent checks.
+   [Braintrust experiment documentation](https://docs.braintrust.dev/evaluate/run-evaluations)
 
 Record source revision, rubric and evaluator versions, judge model/settings,
 dataset and policy versions, fixture clock, session/memory configuration, run
@@ -59,9 +70,10 @@ counts are not customer task-completion measures.
 
 ## Run a local baseline
 
-This is the **legacy development runner**, not the three Arize judges. Configure
-dependencies and credentials using [the frontend guide](frontend.md), and install
-`google-agents-cli` if needed. Generation and grading make billed calls.
+This optional **legacy development runner** uses a single custom judge.
+Configure dependencies and credentials using [the frontend guide](frontend.md),
+and install `google-agents-cli` if needed. Generation and grading make billed
+calls.
 
 ```bash
 uv sync --locked
@@ -144,23 +156,17 @@ to those revised cases or compare the old 1–5 grades directly with the new rub
 See [release gates](build-plan.md#4-evaluation-and-release-gates). No held-out
 quality distribution or automated release gate is checked in.
 
-## Relationship to automatic Arize AX traces
+## Relationship to observability
 
-ADK inference emits automatic traces when Arize is enabled. The legacy CLI judge
-runs separately; its scores are not automatically attached to those traces.
-Enabling trace export does not create evaluators or an experiment.
-
-The evaluation log records manually configured Arize judges and blind-dataset
-calibration. Fresh-output experiment automation, online evaluations, automatic
-case-to-trace joins and alerts remain unimplemented. Count model spans once;
-do not add parent and child durations or duplicate native token totals.
+The [Braintrust tracing plan](observability.md) covers operational signals.
+Synthetic experiments provide answer-quality evidence. Experiment automation,
+online scoring, case-to-trace linking and alerts are pending.
 
 ## Privacy and cost
 
-Keep normal traces masked. Upload the synthetic blind dataset separately for
-offline calibration. Local reports and judge inputs contain full content and
-are not redacted by the trace exporter. Never include customer transcripts,
-credentials or human labels in blind judge inputs.
+Keep customer content out of default trace exports. Use synthetic fixtures for
+offline calibration and keep human labels in the answer key. Treat local reports
+and judge inputs as full-content records outside trace redaction.
 
 Agree a separate content, retention, sampling and cost policy before online
 scoring. Use [observability](observability.md) for capture controls and

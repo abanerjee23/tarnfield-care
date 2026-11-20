@@ -5,9 +5,9 @@ retailer. Tarnfield Care explains the relevant policy, shows its sources and
 helps customers understand their next step.
 
 **Status:** working local preview with cloud retrieval and conversation memory.
-Initial judge calibration is recorded; independent validation and evaluation of
-fresh assistant answers are still pending. The single-agent design is not yet
-publicly deployed.
+Braintrust is the chosen platform for evaluations and observability. Its
+integration, independent judge validation and evaluation of fresh assistant
+answers are pending.
 
 ## Who it helps
 
@@ -76,8 +76,8 @@ flowchart TD
     Answer --> Chat
     Gateway --> Redirect[Redirect or clarification when needed]
     Redirect --> Chat
-    Agent -. execution traces .-> Arize[Arize AX: tracing and offline evaluation]
-    Examples[Human-labelled synthetic examples] -. judge calibration .-> Arize
+    Agent -. planned trace export .-> Braintrust[Braintrust for tracing and evaluation]
+    Examples[Human-labelled synthetic examples] -. planned judge calibration .-> Braintrust
 ```
 
 | Component | Purpose |
@@ -87,7 +87,7 @@ flowchart TD
 | Google Cloud RAG | Retrieve fresh evidence from the returns policy and product catalogue |
 | Managed sessions and Memory Bank | Preserve conversations and recall selected order, item and issue details |
 | Answer and citation checks | Reject malformed answers, unknown source references and detected action promises |
-| Arize AX | Inspect execution and calibrate quality judges on synthetic examples |
+| Braintrust (planned integration) | Inspect agent traces and run evaluations on synthetic cases |
 
 The preview runs the agent locally while using Google Cloud for retrieval and,
 by default, conversation state. Memory provides customer context; it never
@@ -109,22 +109,22 @@ criterion does not apply. Scores are never averaged: a correct answer cannot
 cancel out an unsafe promise. Exact policy quotations are optional; supported,
 clear paraphrases are welcome.
 
-The evaluation log records each of the three Arize judges matching all eight
-human-labelled calibration examples in its latest version. These are hand-written
-answers used to tune the judges, not fresh assistant outputs or an independent
-test. Held-out judge validation comes next, followed by evaluation of the actual
-assistant. [Evaluation approach and evidence](docs/evaluation.md).
+Earlier Arize calibration recorded each of the three judges matching all eight
+human-labelled, hand-written examples used to tune them. In Braintrust, the
+plan is to calibrate scorers on synthetic examples, validate them on a separate
+held-out set, then score fresh assistant answers with the same rubric.
+[Evaluation approach and evidence](docs/evaluation.md).
 
 ## What is monitored
 
-Automatic Arize traces help investigate model usage, latency and failures.
-Prompt and response content is masked by default. Synthetic offline evaluation
-uses a separate dataset, so calibration does not require capturing customer chats.
+Braintrust will be used to investigate execution, model usage, latency and
+failures. The planned trace export omits customer content by default. Offline
+evaluation uses synthetic cases.
 
-Trace delivery has been demonstrated on the earlier deployment. The current
-managed-state path still needs end-to-end trace and privacy verification.
-Online quality evaluation, alerting and retention controls remain release work.
-[Observability guide](docs/observability.md).
+The earlier deployment demonstrated trace delivery through Arize. Braintrust
+trace delivery and privacy on the current managed-state path still need
+end-to-end verification. Online scoring, alerting and retention controls
+remain release work. [Observability guide](docs/observability.md).
 
 ## How the product improves
 
@@ -187,12 +187,12 @@ managed-memory isolation and customer outcome measures remain unproven.
 | Document | Purpose |
 |---|---|
 | [Build and release plan](docs/build-plan.md) | Decisions, tradeoffs and release gates |
-| [Evaluation guide](docs/evaluation.md) | Quality approach, current evidence and legacy runner |
+| [Evaluation guide](docs/evaluation.md) | Braintrust evaluation plan, current evidence and legacy runner |
 | [Evaluation log](docs/ai-evals.md) | Human labels, calibration results and decisions |
 | [Dataset guide](docs/eval-datasets.md) | Calibration inputs and fresh-output seed cases |
-| [Arize evaluation setup](docs/arize-evaluation-setup.md) | Reproduce and extend offline judge calibration |
+| [Historical Arize evaluation setup](docs/arize-evaluation-setup.md) | Reference for the earlier calibration results |
 | [Frontend guide](docs/frontend.md) | Local setup and conversation behaviour |
-| [Observability guide](docs/observability.md) | Tracing and privacy controls |
+| [Observability guide](docs/observability.md) | Braintrust tracing plan and privacy verification |
 | [Deployment guide](docs/deployment.md) | Cloud inventory, release and recovery |
 | [Cost guide](docs/costs.md) | Measurement plan and historical evidence |
 | [Engineering notes](docs/engineering-notes.md) | Implementation details |

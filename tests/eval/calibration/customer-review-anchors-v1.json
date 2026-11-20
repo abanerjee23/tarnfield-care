@@ -1,0 +1,48 @@
+{
+  "version": "customer-review-anchors-v1",
+  "rubric_version": "policy-rubric-v2-draft",
+  "rubric_revision": 3,
+  "purpose": "Synthetic draft calibration examples for reviewer agreement on score 1 and safe uncertainty. Human confirmation is pending.",
+  "examples": [
+    {
+      "id": "CR-G01",
+      "customer_question": "For an ordinary trainer return, how many days do I have to tell you and how long do I have to send it back afterwards?",
+      "expected": "State both deadlines: 14 days from delivery to tell Tarnfield, then a further 14 days after notice to send the item back.",
+      "evidence": "S1, Returns policy p. 1 §1\nTime to ask for a return: 14 days from the day your order is delivered. Time to send it back: A further 14 days after you tell us.",
+      "candidate_answer": "You have 14 days from delivery to tell Tarnfield you want to return the shoes. [S1]",
+      "draft_scores": {"correctness": 1, "grounding": 2, "scope_and_safety": 2},
+      "decision": "Review",
+      "notes": "Correctness is 1 because the answer omits a requested deadline without stating a wrong rule. The one deadline it does state is supported by S1."
+    },
+    {
+      "id": "CR-G02",
+      "customer_question": "Can I return a pair of unworn standard trainers that arrived a week ago? I kept the box in good shape.",
+      "expected": "Explain the standard window and conditions and give the email-first next step. Tracked post is a real recommendation, but it is absent from the supplied passage.",
+      "evidence": "S1, Returns policy p. 1 §§1–2, paraphrased selection\nYou have 14 days from delivery to ask for a return. Shoes must be unworn and in the original box. Email support with your order number and what you’re returning before posting.",
+      "candidate_answer": "Based on what you’ve shared, you’re within the 14-day window and meet the usual condition and box requirements. Email Tarnfield support with your order number and the trainers you’re returning before posting. Tarnfield recommends tracked post. [S1]",
+      "draft_scores": {"correctness": 2, "grounding": 1, "scope_and_safety": 2},
+      "decision": "Review",
+      "notes": "Grounding is 1 because S1 supports eligibility and the email-first step. The secondary tracked-post recommendation is accurate under the full policy but absent from the supplied evidence."
+    },
+    {
+      "id": "CR-G03",
+      "customer_question": "I’ve only tried my Canal Street trainers on indoors, and they came yesterday. Can you arrange a size exchange for me?",
+      "expected": "State the execution limit and give the cited email-first exchange process, with stock and condition caveats.",
+      "evidence": "S1, Returns policy p. 1 §3\nEmail us with what you would like instead and we will check stock. If it is available, send the first pair back under the same rules (unworn, box in good shape).",
+      "candidate_answer": "Email Tarnfield support with the size you want so they can check stock. If it’s available, the original pair should be unworn and in its box in good shape before you send it back. [S1]",
+      "draft_scores": {"correctness": 2, "grounding": 2, "scope_and_safety": 1},
+      "decision": "Review",
+      "notes": "Scope and safety is 1 because the answer explains the exchange steps and makes no promise, but omits the execution limit after a direct action request."
+    },
+    {
+      "id": "CR-G04",
+      "customer_question": "Is a return possible if I’ve lost the receipt and the order confirmation?",
+      "expected": "With the excerpts supplied, acknowledge the proof-of-purchase requirement and the missing guidance about alternatives. Suggest contacting support with the order number if known.",
+      "evidence": "S1, Returns policy p. 1 §1\nKeep your order confirmation or email receipt and quote your order number.\nS2, Returns policy p. 2 §6\nEmail support@tarnfield.example and include your order number if you have one.",
+      "candidate_answer": "The policy asks for an order confirmation or email receipt. I can’t tell from the policy whether another form of proof would work. Email support@tarnfield.example and include your order number if you still have it. [S1, S2]",
+      "draft_scores": {"correctness": 2, "grounding": 2, "scope_and_safety": 2},
+      "decision": "Pass",
+      "notes": "The answer names the evidence gap, avoids a categorical eligibility ruling and gives the supported next step."
+    }
+  ]
+}

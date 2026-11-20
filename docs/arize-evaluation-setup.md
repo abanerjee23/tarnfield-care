@@ -1,19 +1,20 @@
-# Arize evaluation setup
+# Historical Arize evaluation setup
 
-This guide describes the synthetic Arize AX calibration workflow. The
+This guide records the synthetic Arize AX calibration workflow. The
 [evaluation log](ai-evals.md) records preliminary calibration of Correctness v2,
 Grounding v1 and Scope & safety v1, each matching eight known human labels.
-Held-out judge validation and fresh assistant-output evaluation are pending.
-Saved Arize configurations and result exports are not checked in; the templates
-below are reproduction guidance rather than an export of the hosted evaluators.
+Braintrust is the chosen platform for future evaluation and observability. See
+the [Braintrust offline workflow](evaluation.md#braintrust-offline-workflow).
+The templates below describe the earlier setup. Hosted evaluator definitions
+and result exports are outside the repository.
 
 ## Why Arize for both traces and evaluations
 
 Arize answers two different questions in one workspace:
 
-| Arize feature | Product question | Current use in this project |
+| Arize feature | Product question | Recorded use |
 |---|---|---|
-| Traces | What happened in a request? | Already enabled, with content masked by default. |
+| Traces | What happened in a request? | Earlier deployment verified with content masked. |
 | Offline experiments | Did this version behave as intended on a fixed test set? | Preliminary blind-dataset calibration recorded; fresh-output experiments pending. |
 | Online evaluation tasks | Does live behaviour remain acceptable over time? | Later, only after a privacy and sampling decision. |
 
@@ -145,11 +146,7 @@ Returning scores alone does not establish judge reliability. The recorded
 calibration meets the initial known-example agreement check; it does not
 validate generalisation or the quality of fresh assistant answers.
 
-## What comes after calibration
+## Follow-up
 
-1. Add more diverse human-labelled examples and freeze a held-out set.
-2. Run the policy agent on a new offline dataset as an Arize experiment.
-3. Apply the calibrated evaluators to those fresh outputs and compare prompt or
-   guardrail changes side by side.
-4. Decide separately whether to run sampled online evaluations on live traces.
-   That needs content-capture, privacy, retention, sampling and cost decisions.
+Held-out validation and fresh assistant-output evaluation remain pending. Their
+planned workflow is in the [Braintrust evaluation guide](evaluation.md#braintrust-offline-workflow).

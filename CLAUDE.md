@@ -14,9 +14,10 @@
   RAG citations, managed sessions and Memory Bank. Read docs/build-plan.md before
   building. Billing, specialist delegation and Firestore review workflows are
   removed from current source; older cloud resources remain pending approved retirement.
-- Judge calibration uses human-labelled good, poor and borderline responses;
-  agent evaluations score fresh outputs. Preliminary Arize calibration is recorded in
-  docs/ai-evals.md; held-out judge validation and fresh-output evals remain pending.
+- Braintrust is the chosen platform for evaluation and observability. Its
+  integration is pending. Judge calibration uses human-labelled good, poor and
+  borderline responses, and agent evaluations score fresh outputs.
+  Historical Arize calibration is recorded in docs/ai-evals.md.
 
 ## Prerequisites
 
@@ -36,7 +37,14 @@ Before writing any code, understand the project's requirements, constraints, and
 Implement agent logic in `app/`. Use `make playground` for interactive agent testing with the configured SQLite session and local memory services. Use `make chat-gateway` and `make chat-ui` for the customer frontend executing current local policy code with managed state. Iterate based on user feedback; preserve the existing models unless a model change is requested.
 
 ### Phase 3: The Evaluation Loop (Main Iteration Phase)
-Use [the project evaluation guide](docs/evaluation.md). Arize AX is the chosen workspace for offline evaluation and tracing. Three judges have recorded preliminary calibration on eight known examples; independent validation is pending. The two-case `agents-cli` runner and custom Gemini judge remain a legacy development path. Agree measurable acceptance criteria, a run budget and held-out cases before a new experiment. The legacy dataset is not new-design coverage, and an already registered ADK server can bypass new environment overrides; use the guide's controlled-server baseline. Inspect per-case errors and judge rationales, and compare saved result files after a change. Do not interpret two high scores as broad product quality. Run prompt optimisation only when explicitly requested.
+Use [the project evaluation guide](docs/evaluation.md). Implement and validate
+the Braintrust scorers before using them for release decisions. The two-case
+`agents-cli` runner and custom Gemini judge remain a legacy development path.
+Agree measurable acceptance criteria, a run budget and held-out cases before a
+new experiment. For legacy runs, use the guide's controlled-server baseline
+because an already registered ADK server can bypass new environment overrides.
+Inspect per-case errors and judge rationales and compare saved results after a
+change. Run prompt optimisation only when explicitly requested.
 
 ### Phase 4: Pre-Deployment Tests
 Run `uv run pytest tests/unit tests/integration`. Fix issues until all tests pass.
@@ -56,7 +64,7 @@ Follow [the current deployment runbook](docs/deployment.md). The existing Agent 
 | `uv run pytest tests/unit tests/integration` | Run unit and integration tests |
 | `agents-cli eval dataset synthesize` | Synthesize multi-turn eval scenarios for your agent |
 | `make eval` | Corpus preflight, then generate and grade the eval dataset |
-| `uv run python scripts/arize_trace_smoke.py` | Verify automatic Arize transport without a model bill |
+| `uv run python scripts/arize_trace_smoke.py` | Verify the legacy Arize exporter without a model bill |
 | `agents-cli eval generate` / `agents-cli eval grade` | Decoupled form: produce traces, then grade them |
 | `agents-cli eval compare` | Compare two grade-results files (regression check) |
 | `agents-cli eval analyze` | Cluster failure modes from grade results |
@@ -80,4 +88,7 @@ Follow [the current deployment runbook](docs/deployment.md). The existing Agent 
 - **Stop on repeated errors**: If the same error appears 3+ times, fix the root cause instead of retrying.
 - **Terraform conflicts** (Error 409): Use `terraform import` instead of retrying creation.
 - **Product documentation**: README follows User → Problem → Why AI → Success criteria → UX → System design → Evaluation → Observability → Iteration → Safety → Production/ops → Portfolio evidence. Separate measured outcomes from proposed targets and implemented capabilities from roadmap work.
-- **Observability**: Use the existing automatic Arize AX integration. Do not add manual traces around model/tool calls or replace the shared Cloud tracer provider. Keep secrets server-side and content capture off unless explicitly selected for a controlled workflow.
+- **Observability**: Follow the [Braintrust tracing plan](docs/observability.md).
+  Reuse the shared OpenTelemetry provider and avoid duplicate model or tool
+  spans. Keep credentials server-side and customer content out of default
+  exports. The existing Arize exporter remains available for legacy diagnostics.

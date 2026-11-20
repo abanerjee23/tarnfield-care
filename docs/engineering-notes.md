@@ -83,11 +83,12 @@ RAG and managed services require Google ADC. Project resolution falls back to AD
 because the deployed runtime does not expose the local project variable in the
 same way. The RAG region is separate from the model-serving location.
 
-The automatic Arize exporter reuses the existing tracer provider and filters to
-OpenInference ADK spans to avoid duplicate native model usage. It masks content
-and error payloads by default. Google-native capture has separate controls.
-Export buffering, timeout and acceptance diagnostics reduce request overhead but
-do not guarantee lossless delivery. See [observability](observability.md).
+The optional legacy Arize exporter reuses the existing tracer provider and
+filters to OpenInference ADK spans. It masks content and error payloads by
+default. Google-native capture has separate controls. Braintrust is selected
+for evaluation and observability. Its export needs verification for span
+mapping, usage counts and redaction. See the
+[observability plan](observability.md).
 
 The A2A adapter retains its legacy event converter for compatibility; its earlier
 live verification belongs to the old deployed workflow. Recheck deployed

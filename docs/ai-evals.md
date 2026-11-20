@@ -2,7 +2,10 @@
 
 This is the working record for validating the returns and exchanges policy agent. It is written for product decision-making: what we decided, why it matters to customers, what evidence exists, and what still needs proving.
 
-**Current status:** the Correctness, Grounding, and Scope & safety judges have been calibrated against the first eight human-labelled examples. Each agrees with all 8/8 known labels in its latest version. Held-out judge validation and fresh agent-output evaluation have not started.
+**Current status.** Braintrust is the chosen platform for evaluation and
+observability. Its setup, held-out judge validation and fresh agent-output
+evaluation are pending. The earlier Arize calibration recorded 8/8 agreement
+for each of the three judges on the known examples.
 
 ## What we are validating
 
@@ -82,6 +85,7 @@ These are proposed case-level rules. We will agree acceptance thresholds, evalua
 | 2026-10-06 | Count a generic “check the policy” deflection as incorrect for an in-scope policy request. | A customer needs useful policy guidance or a specific explanation of why the agent cannot decide; a non-answer is not a correct answer. |
 | 2026-10-06 | Preserve Grounding N/A as an explicit judge label. | Privacy and prompt-injection refusals that make no policy or evidence claim should not be misreported as ungrounded. Arize requires a numeric value for every label, so `not_applicable` is stored with `0` but excluded from grounding-quality comparisons. |
 | 2026-10-06 | Keep Scope & safety separate from Correctness. | A policy answer can be factually right and evidence-backed yet still fail by promising that the agent will arrange or process a return. |
+| 2026-11-20 | Select Braintrust for evaluation and observability. | Run future experiments and inspect agent traces in Braintrust. Retain the rubric, human labels and earlier Arize results as project evidence. |
 
 ## Calibration set
 
@@ -147,15 +151,16 @@ This is calibration evidence—not independent validation. The cases helped us s
 | LLM-as-judge calibration: Correctness | Preliminary calibration complete | Arize AX dataset `tarnfield-calibration-v1-blind`; evaluators `tarnfield-correctness-v1` and `tarnfield-correctness-v2` | Version 2 matches 8/8 human Correctness labels on the tuning set. It is not independently validated or production-ready. |
 | LLM-as-judge calibration: Grounding | Preliminary calibration complete | Arize AX dataset `tarnfield-calibration-v1-blind`; evaluator `tarnfield-grounding-v1` | Version 1 matches 8/8 human Grounding labels, including two N/A labels. It is not independently validated or production-ready. |
 | LLM-as-judge calibration: Scope & safety | Preliminary calibration complete | Arize AX dataset `tarnfield-calibration-v1-blind`; evaluator `tarnfield-scope-safety-v1` | Matches 8/8 human Scope & safety labels on the tuning set. It is not independently validated or production-ready. |
+| Braintrust integration | Selected, setup pending | [Evaluation workflow](evaluation.md#braintrust-offline-workflow) and [observability plan](observability.md) | Platform decision recorded. Scorers, experiments and trace delivery still need verification. |
 | Held-out judge validation | Not started | — | No generalisation evidence yet. |
 | Fresh agent-output evaluation | Not started under this rubric | — | No measured quality baseline for the current design yet. |
 
 ## Next validations
 
-1. Create and human-label a separate held-out set before changing any judge again.
-2. Run every calibrated judge once on the held-out set, compare results with the human labels, and record any gaps.
-3. Agree run budget and measurable acceptance criteria before evaluating fresh agent outputs.
-4. Run fresh policy-agent outputs, inspect failures by criterion, make targeted fixes, and compare before/after results without discarding held-out cases.
+1. Configure and calibrate the three Braintrust scorers on synthetic examples. Confirm the draft partial-score labels.
+2. Freeze a separate human-labelled holdout and run the scorers with labels hidden. Compare scores and record false passes.
+3. Agree a run budget and measurable acceptance criteria, then score fresh policy-agent outputs in Braintrust.
+4. Inspect failures by criterion, make targeted fixes, and compare results while preserving independent checks.
 
 ## Guardrails for this log
 

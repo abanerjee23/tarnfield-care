@@ -10,13 +10,33 @@ assistant. These serve different purposes and must remain separate.
 |---|---|---|
 | [`rubric.yaml`](../tests/eval/rubric.yaml) | Three independent criteria, 0–2 plus N/A | Draft revision 3; not wired into the legacy CLI grader |
 | [`calibration-set-v1.json`](../tests/eval/calibration/calibration-set-v1.json) | Eight hand-written candidate answers with human labels | Known calibration examples, not a holdout |
-| [`calibration-v1-blind.csv`](../tests/eval/arize/calibration-v1-blind.csv) | Judge inputs without human labels or reasons | Synthetic Arize calibration input |
+| [`calibration-v1-blind.csv`](../tests/eval/arize/calibration-v1-blind.csv) | Judge inputs without human labels or reasons | Historical Arize calibration input |
 | [`practice.json`](../tests/eval/calibration/practice.json) and [`rubric-v1.yaml`](../tests/eval/calibration/rubric-v1.yaml) | Earlier practice and rubric | Historical; do not mix their scores with the current rubric |
 | [`basic-dataset.json`](../tests/eval/datasets/basic-dataset.json) | Two prompts for fresh agent generation through `agents-cli` | Seed coverage only; no current-design quality baseline |
+| [`customer-review-v1.json`](../tests/eval/datasets/customer-review-v1.json) | 24 customer-facing cases with expected behaviour and policy references | Draft manual review suite, including four controlled cases |
+| [`customer-review-anchors-v1.json`](../tests/eval/calibration/customer-review-anchors-v1.json) | Four proposed calibration examples covering score 1 and a well-supported uncertainty response | Draft labels pending human confirmation |
 
-The evaluation log records preliminary 8/8 agreement for each latest Arize
-judge. No independent held-out set or result exports are checked in. See
-[the evidence log](ai-evals.md) and [evaluation workflow](evaluation.md).
+The evaluation log records preliminary 8/8 agreement for each final Arize
+judge version. Braintrust setup and held-out validation are pending. See
+[the evidence log](ai-evals.md) and the
+[Braintrust offline workflow](evaluation.md#braintrust-offline-workflow).
+
+## Customer review suite
+
+Run chat cases through the customer preview with a fresh conversation per case
+unless the setup names a prior turn. Use a controlled harness for the four
+retrieval and memory scenarios. A blocked setup leaves the case unscored.
+Record the actual customer-facing reply, displayed citations and evidence supplied
+to the model, including an explicit empty evidence set when applicable. Keep the
+policy references in the answer key for correctness review. Grounding uses only
+evidence supplied on the run.
+
+Use the existing 0–2 rubric for the case decision. The 1–4 helpfulness, tone and
+conciseness ratings are reviewer feedback. Review the historical human-labelled
+calibration examples under their recorded revisions. The four draft anchors
+need human confirmation before they can be used as reference labels. The
+case bank is visible to reviewers and can be used for development and regression
+review. Reserve independent examples for validating the judges.
 
 ## Fresh-output seed cases
 
@@ -30,7 +50,7 @@ Order facts come from `app/data/fixtures.json`. The fixture date is fixed at
 scores belong to different case versions, not these prompts.
 
 Use the [controlled local runner](evaluation.md#run-a-local-baseline) to generate
-and grade responses. It uses the legacy 1–5 custom judge, not the Arize rubric.
+and grade responses with the legacy 1–5 custom judge.
 Real generation and grading consume credits. The runner's shared user identity
 can carry memory between cases even with separate sessions.
 
@@ -51,9 +71,9 @@ capability boundary and candidate answer. Keep scores, label explanations and
 pass/fail decisions only in the labelled source. Preserve N/A explicitly.
 Version rubric changes and label decisions rather than silently relabelling history.
 
-The current eight-case set has 0/2 and N/A labels; it does not exercise the
-partial-score boundary. Add human-labelled score-1 examples in future coverage.
+The original eight-case set has 0/2 and N/A labels. The draft score-1 anchors
+need human confirmation before they can serve as reference labels.
 
-Local JSON/HTML evaluation reports contain full conversation content. They are
-ignored by Git and require review before sharing; Arize masking does not redact
-them. Use fictional identities and never commit credentials or customer records.
+Local JSON/HTML evaluation reports contain full conversation content and sit
+outside trace redaction. Git ignores them. Review them before sharing, use
+fictional identities, and keep credentials and customer records out of Git.

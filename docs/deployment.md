@@ -8,6 +8,8 @@
 
 Status checked **1 October 2026**. This runbook describes the existing portfolio
 deployment and its boundaries. Documentation edits do not require redeployment.
+Braintrust is the chosen platform for future evaluation and observability.
+Integration and rollout are pending. See the [observability plan](observability.md).
 
 The product entry point is **[Tarnfield Care customer chat](http://127.0.0.1:3010)**,
 currently hosted locally and running the current single-agent source with managed state.
@@ -26,7 +28,7 @@ not deployed yet.
 | Cloud Run service | `support-ops-dashboard`, region `us-central1` | Latest ready revision `support-ops-dashboard-00004-nt7`; Ready, ConfigurationsReady and RoutesReady all true |
 | Chat gateway | `http://127.0.0.1:8081` | Local server-side runner for current source with managed state |
 | ADK playground | `http://127.0.0.1:8080` | Alternative local interface, started by `make playground` |
-| Arize AX | Project `tarnfield-customer-bot` in the configured Arize space | Earlier deployed trace delivery verified; preliminary offline judge calibration recorded; alerts pending |
+| Legacy Arize AX | Project `tarnfield-customer-bot` in the configured Arize space | Earlier deployed trace delivery and calibration are recorded |
 
 Agent Runtime is configured with **min instances 0, max instances 10**. A ready
 service may scale to zero and incur a cold start. This inventory is a dated
@@ -89,7 +91,7 @@ filling the actual resource, or set this variable before starting the gateway:
 export DEPLOYED_AGENT_RUNTIME_ID=projects/823305428259/locations/us-central1/reasoningEngines/3469440221970432000
 ```
 
-Keep the gateway's cloud credentials and both API keys on the server. A signed
+Keep the gateway's cloud credentials and API keys on the server. A signed
 anonymous demonstration identity does not provide verified customer login or
 order ownership. Those checks belong in a production identity design before
 hosting this frontend publicly.
@@ -98,9 +100,9 @@ hosting this frontend publicly.
 
 | Setting | Local location | Deployed location |
 |---|---|---|
-| Non-secret project, RAG and Arize settings | `.env`, copied from `.env.example` | Runtime environment configuration |
+| Non-secret project, RAG and legacy Arize settings | `.env`, copied from `.env.example` | Runtime environment configuration |
 | `GEMINI_API_KEY` | Ignored `.env.local`, copied from `.env.local.example` | Secret Manager `gemini-api-key:latest` |
-| `ARIZE_API_KEY` | Ignored `.env.local` | Secret Manager `arize-api-key:latest` |
+| `ARIZE_API_KEY` (legacy exporter) | Ignored `.env.local` | Secret Manager `arize-api-key:latest` |
 | Runtime resource | Ignored deployment metadata or gateway environment | Existing managed runtime resource |
 
 `agents-cli deploy` reads `.env` into deployed environment variables and does
@@ -116,7 +118,8 @@ configuration differences and identify the last known working source/config.
 For behavioural changes, use the [evaluation guide](evaluation.md) under a
 controlled synthetic-data budget. Preserve the resource ID and managed state.
 
-After deployment approval, the established in-place update path is:
+After deployment approval, the following in-place update path applies to the
+existing runtime with its legacy Arize configuration:
 
 ```bash
 env -u GOOGLE_APPLICATION_CREDENTIALS agents-cli deploy \
@@ -129,8 +132,8 @@ env -u GOOGLE_APPLICATION_CREDENTIALS agents-cli deploy --status
 The environment override avoids a stale custom credential-file path; it still
 requires working ADC. This command updates the agent, not the separate dashboard
 or a public customer UI. Review generated deployment metadata and startup logs
-after completion. Verify one synthetic frontend turn and its newly generated
-Arize trace, rather than relying only on deployment success or a buffered flush.
+after completion. Verify one synthetic frontend turn and confirm delivery to
+the trace destination configured on that runtime.
 
 Do not recreate the runtime to solve a telemetry issue: that changes its identity
 and disrupts the managed-session path. The SDK/CLI deployment and manually
@@ -143,10 +146,10 @@ this in-place update.
 | Check or symptom | Operational response |
 |---|---|
 | Python/frontend regression | Run the relevant checks listed in [frontend guide](frontend.md#verification-and-release); use an unused integration-server port |
-| Quality change | Generate and grade a controlled synthetic dataset; inspect errors, critical cases and held-out results |
+| Quality change | Use the [evaluation guide](evaluation.md) to review critical cases and held-out results |
 | Agent latency or timeout | Inspect root-trace duration and slow model/tool spans; the gateway defaults to a 120s turn limit and 30s API-operation limit, and the frontend proxy has a 150s timeout |
 | Stream stopped or interrupted | Reload conversation history before resending; visible Stop does not guarantee server cancellation |
-| Missing Arize trace | Check enabled settings, secret permission, project/space, collector diagnostics and ingestion delay using the [observability guide](observability.md) |
+| Missing trace | For the existing exporter, use the [legacy Arize checks](arize-observability.md#troubleshooting-and-monitoring-gaps). For Braintrust rollout, use the [integration verification plan](observability.md#verify-the-integration) |
 | Dashboard 403 | Check the Google account, service invocation permission and application reviewer configuration; keep private access intact |
 | Wrong or missing runtime resource | Check gateway environment and ignored deployment metadata against the inventory above |
 | Retrieval failure | Inspect ADC, project, region and `make rag-status`; ingestion and project-wide RAG mode changes need deliberate review |
@@ -162,12 +165,12 @@ configuration and secret references, then perform an approved in-place update
 from that version and repeat verification. There is no automated agent rollback
 pipeline configured here. A Cloud Run rollback can route traffic to a known
 working existing revision after its compatibility is checked; that is separate
-from an Agent Runtime update. Disabling Arize with `ARIZE_ENABLED=false` is a
-configuration rollback requiring a runtime update, not a dashboard change.
+from an Agent Runtime update. Disabling the existing Arize exporter with
+`ARIZE_ENABLED=false` requires a runtime configuration update.
 
 ## Customer launch gaps
 
-Public frontend hosting, verified customer identity/order ownership, abuse/rate/quota controls, held-out judge validation, fresh-output quality gates,
+Public frontend hosting, verified customer identity/order ownership, abuse/rate/quota controls, Braintrust integration, held-out judge validation, fresh-output quality gates,
 measured latency, policy freshness ownership, retention/consent, alerts,
 CI/CD and a rehearsed rollback remain open. Readiness of the two deployed
 services does not resolve these product requirements.

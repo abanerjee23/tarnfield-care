@@ -28,8 +28,9 @@ Install dependencies with `uv sync --locked` and `npm --prefix frontend ci`.
 
 For a fresh checkout, copy `.env.example` to `.env` and `.env.local.example` to
 `.env.local` without overwriting existing configuration. Set the Google project
-and corpus settings in `.env`, and the Gemini key in `.env.local`. Keep Arize
-disabled unless its space and key are configured. Authenticate Google ADC with
+and corpus settings in `.env`, and the Gemini key in `.env.local`. Keep the
+optional legacy Arize exporter disabled for normal local setup. Braintrust
+export is planned. Authenticate Google ADC with
 `gcloud auth application-default login`, then check `make rag-status`. Creating
 or importing a corpus uses cloud resources; `make rag-up` ingests the demonstration
 PDFs when needed. See [deployment](deployment.md) for managed state configuration.
@@ -60,7 +61,7 @@ npm --prefix frontend run build
 ```
 
 For isolated Python verification, use a clean checkout without local `.env`
-overrides, disable Arize export and set `TEST_SERVER_PORT` to an unused port.
+overrides, disable the legacy Arize exporter and set `TEST_SERVER_PORT` to an unused port.
 Local secret overrides can otherwise enable tracing during instrumentation tests.
 See [build report](build-report.md) for dated results and end-to-end evidence.
 

@@ -11,7 +11,7 @@ answer. The single-agent design has no representative cost baseline yet.
 | Google Cloud RAG | Ingestion, embeddings, storage and retrieval; inspect region and billing mode |
 | Managed sessions and Memory Bank | Stored history, retention, recall and memory generation |
 | Agent hosting | Runtime compute, cold starts and scaling after release |
-| Arize AX | Trace volume, retention, account plan and offline judge usage |
+| Braintrust (planned) | Trace volume, retention, account plan and scorer usage |
 | Evaluation | Judge model, cases, repetitions, failures and re-grading |
 | Supporting services | Secrets, build artifacts and native Cloud logging/trace |
 | Public frontend | Hosting choice and traffic; not yet deployed |
@@ -42,8 +42,8 @@ correctness, grounding, scope failures and customer task completion. Measure
 p50/p95 time to first useful text and completed response on representative cases.
 
 Count each eligible model call once. Do not add native duplicate spans or parent
-aggregates. Track evaluation costs separately from customer inference; the
-legacy CLI judge runs outside the automatic ADK trace integration.
+aggregates. Track evaluation costs separately from customer inference, including
+Braintrust scorer usage once configured and any legacy CLI judge runs.
 
 For model spend, multiply input and billable output tokens by their applicable
 rates, including thinking and caching only as billed. Verify current account

@@ -33,8 +33,9 @@ The local gateway executes current source, not the old deployed multi-agent code
 | Guardrails/citations | Built | Deterministic tests pass; broad adversarial quality gate is pending |
 | State/memory | Wired | Local cross-session recall and managed history reload pass; Memory Bank recall/isolation must be verified |
 | Customer UI | Built | Frontend tests, typecheck and production build pass |
-| Judge calibration | Preliminary results recorded | Three judges each match eight known human-labelled examples; independent validation pending |
-| Behavioural evaluation | Pending | Held-out judge validation, then fresh assistant outputs under the three-criterion rubric |
+| Judge calibration | Historical results recorded | Three Arize judges each matched eight known human-labelled examples. Braintrust scorer setup and independent validation are pending |
+| Behavioural evaluation | Pending | Run fresh assistant outputs in Braintrust under the three-criterion rubric after held-out judge validation |
+| Observability | Braintrust selected | Verify trace export and privacy on the managed-state customer path. Arize delivery was verified on the earlier deployment |
 | Deployment/retirement | Pending approval | New source not deployed; no cloud services deleted |
 
 ## 4. Evaluation and release gates
@@ -52,17 +53,17 @@ These are goals, not measured results:
 | Completed latency | Representative p95 ≤8s |
 | Capability honesty | No executed-action claims |
 
-Use the three-criterion rubric: correctness, grounding, and scope and safety.
-Keep scores separate; any serious failure must remain visible. The evaluation
-log records preliminary calibration on eight known examples. Validate the judges
-on a separate human-labelled holdout with labels hidden, then score fresh Flash
-outputs. Include score-1 examples and inspect false passes. Historical CLI grades
-are not new-design acceptance coverage. See [the evaluation log](ai-evals.md).
+Use the three-criterion rubric for correctness, grounding, and scope and safety.
+Keep scores separate so serious failures stay visible. The evaluation log
+records earlier Arize calibration on eight known examples. Configure the
+Braintrust scorers, validate them on a separate human-labelled holdout with
+labels hidden, then score fresh Flash outputs. Include score-1 examples and
+inspect false passes. See [the evaluation guide](evaluation.md).
 
 ## 5. Release order
 
-1. Verify the local customer path, managed state/recall and trace privacy.
-2. Run calibrated evaluations, representative latency/cost checks and abuse cases.
+1. Verify the local customer path, managed state and recall, and Braintrust trace delivery and privacy.
+2. Run calibrated Braintrust evaluations, representative latency/cost checks and abuse cases.
 3. Obtain approval to deploy; validate the new cloud customer path.
 4. Inventory legacy resources and prepare rollback.
 5. Obtain approval before retiring Firestore or reviewer cloud services.
